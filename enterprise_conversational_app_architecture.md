@@ -128,18 +128,18 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-  A[User Message Received]
-  A --> B{Is intent high-confidence?}
-  B -- Yes --> C[Call LLM]
-  B -- No  --> D[Run business-rule classifier]
-  D -- CSR required --> E[Notify CSR via WebSocket]
-  D -- Try LLM --> C
-  C --> F{LLM Answer OK?}
-  F -- Yes --> G[Return response to user; log to Postgres]
-  F -- No  --> E
-  E --> H[CSR takes over; labels stored]
-  G --> I[Analytic Engine ingests event]
-  H --> I
+    A[User Message Received]
+    A --> B{Is intent high-confidence?}
+    B -->|Yes| C[Call LLM]
+    B -->|No| D[Run business-rule classifier]
+    D -->|CSR required| E[Notify CSR via WebSocket]
+    D -->|Try LLM| C
+    C --> F{LLM Answer OK?}
+    F -->|Yes| G[Return response to user; log to Postgres]
+    F -->|No| E
+    E --> H[CSR takes over; labels stored]
+    G --> I[Analytic Engine ingests event]
+    H --> I
 ```
 
 ---
@@ -148,43 +148,43 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-  subgraph FrontendLayer
-    U[User Streamlit UI]
-    CSR[CSR Dashboard]
-  end
+    subgraph FrontendLayer["Frontend Layer"]
+        U[User Streamlit UI]
+        CSR[CSR Dashboard]
+    end
 
-  subgraph APILayer
-    APIGW[FastAPI Gateway]
-    Auth[Auth Service]
-  end
+    subgraph APILayer["API Layer"]
+        APIGW[FastAPI Gateway]
+        Auth[Auth Service]
+    end
 
-  subgraph Core
-    Orchestrator[Chat Orchestrator / LLMRouter]
-    Postgres[Postgres + pgvector]
-    MCP[Order Microservice]
-    Redis[Redis (session, locks)]
-    Analytic[Analytical Engine]
-    Realtime[WebSocket Service]
-  end
+    subgraph Core["Core Services"]
+        Orchestrator[Chat Orchestrator / LLMRouter]
+        Postgres[(Postgres + pgvector)]
+        MCP[Order Microservice]
+        Redis[(Redis)]
+        Analytic[Analytical Engine]
+        Realtime[WebSocket Service]
+    end
 
-  subgraph Models
-    LLMCloud[OpenAI / Anthropic]
-    LLMOnPrem[TGI / LlamaCPP]
-  end
+    subgraph Models["Model Layer"]
+        LLMCloud[OpenAI / Anthropic]
+        LLMOnPrem[TGI / LlamaCPP]
+    end
 
-  U --> APIGW
-  CSR --> Realtime
-  APIGW --> Orchestrator
-  Orchestrator --> Postgres
-  Orchestrator --> MCP
-  Orchestrator --> Redis
-  Orchestrator --> LLMCloud
-  Orchestrator --> LLMOnPrem
-  Orchestrator --> Realtime
-  Orchestrator --> Analytic
-  Postgres --> Analytic
-  CSR --> Postgres
-  Analytic --> Grafana[Grafana/Superset]
+    U --> APIGW
+    CSR --> Realtime
+    APIGW --> Orchestrator
+    Orchestrator --> Postgres
+    Orchestrator --> MCP
+    Orchestrator --> Redis
+    Orchestrator --> LLMCloud
+    Orchestrator --> LLMOnPrem
+    Orchestrator --> Realtime
+    Orchestrator --> Analytic
+    Postgres --> Analytic
+    CSR --> Postgres
+    Analytic --> Grafana[Grafana/Superset]
 ```
 
 ---
