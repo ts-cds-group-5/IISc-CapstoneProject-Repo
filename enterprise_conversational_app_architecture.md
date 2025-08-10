@@ -23,7 +23,28 @@ Here’s the updated architecture with simpler CSR handoff and Postgres for vect
 6. **CSR Responds:** CSR continues conversation in real time.
 7. **Persistence:** All chats stored in Postgres (with embeddings in pgvector for retrieval).
 
-**Diagram (high-level):** [Streamlit UI] ↔ [FastAPI Gateway] ↔ [LLM Orchestrator + MCP Client] ↔ [LLM APIs / MCP Servers]          ↘ [Postgres + pgvector]          ↘ [CSR WebSocket Service] ↔ [CSR Streamlit UI]          ↘ [Recommendation Engine]
+**High-Level Architecture Diagram:**
+
+```mermaid
+flowchart LR
+    UI[Streamlit UI]
+    Gateway[FastAPI Gateway]
+    Orchestrator[LLM Orchestrator + MCP Client]
+    LLM[LLM APIs / MCP Servers]
+    DB[(Postgres + pgvector)]
+    WS[CSR WebSocket Service]
+    CSR[CSR Streamlit UI]
+    RE[Recommendation Engine]
+
+    UI <--> Gateway
+    Gateway <--> Orchestrator
+    Orchestrator <--> LLM
+    Orchestrator --> DB
+    Orchestrator --> WS
+    WS <--> CSR
+    Orchestrator --> RE
+```
+
 
 
 
