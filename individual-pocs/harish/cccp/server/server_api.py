@@ -4,7 +4,7 @@
 from fastapi import FastAPI, Request
 from pydantic import BaseModel
 from mspb_model import load_phi_2_model, get_text_generator, generate_text
-from langchain.prompts import PromptTemplate
+from langchain.prompts import PromptTemplate, ChatPromptTemplate
 from langchain.chains.llm import LLMChain
 #from langchain_community.llms import huggingface_pipeline
 from langchain_huggingface import HuggingFacePipeline
@@ -29,15 +29,12 @@ async def root():
 
 
 #define task template for structured output
-def task_template(instruction: str) -> str:
-    
+def task_template(instruction: str) :
+    print(f"Creating task template for instruction: {instruction}")
     task_template = '''You are a friendly chatbot assistant that gives structured output.
     Your role is to arrange the given task in this structure.
-    ### instruction:\n{instruction}\n\nOutput:###Response:\n'''
-
-    prompt1 = PromptTemplate.from_template(task_template)
-
-    return prompt1
+    ### instruction:\n{instruction}\n\nOutput:###Response:\n'''    
+    return task_template.format(instruction=instruction)
 
 
 model, tokenizer = load_phi_2_model()
@@ -53,19 +50,23 @@ async def generate_text_phi2(request: Request):
     formatted_prompt = task_template(prompt)
     print(f"Received prompt: {prompt}")
     print(f"Formatted prompt: {formatted_prompt}")
-    if not prompt:
+
+    
+    prompt = ChatPromptTemplate.from_template(formatted_prompt)
+    
+    if not formatted_prompt:
         return {"error": "Prompt is required"}
     
-    chain = prompt | hfpl | StrOutputParser()
-
-    result = chain.invoke({"instruction": "Explain the importance of a good prompt."})
+#call the model using HuggingFace pipeline, LLMChain and StrOutputParser
+    chain =  hfpl | StrOutputParser()
+    result = chain.invoke(formatted_prompt)
     print(f"Chain result: {result}")
 
-    generated_text = generate_text(formatted_prompt, hfpl)
-    print(f"Generated text: {generated_text}")
+#    generated_text = generate_text(formatted_prompt, hfpl)
+#    print(f"Generated text: {generated_text}")
 
 
-    return {"generated_text": generated_text} #change this to result
+    return {"generated_text": result} #change this to result
 
 
 #create a post endpoint to handle chat messages
