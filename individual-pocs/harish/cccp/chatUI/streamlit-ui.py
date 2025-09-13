@@ -62,6 +62,10 @@ with st.chat_message("assistant"):
                     print(f"inside answer part: {generated_text}")
                     print(f"Extracted answer part: {answer_part}")
                     st.markdown(answer_part)
+                else:
+                    answer_part = generated_text
+                    st.markdown(generated_text)
+                #append to session state messages
             
             st.session_state.messages.append({"role": "assistant", "content": answer_part})
             

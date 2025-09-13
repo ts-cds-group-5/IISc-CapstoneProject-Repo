@@ -53,11 +53,16 @@ hfpl = HuggingFacePipeline(pipeline=plmspb)
 @tool
 def multiply(a: int, b: int) -> int:
     """Multiplies two numbers and returns the result."""
+    print(f"inside multiply tool with a: {a}, b: {b} and types {type(a)}, {type(b)}")
     try:
+        print(f"inside Multiplying {a} and {b}")
         z = a / b
     except Exception as e:
         # Log or handle the error as needed
         raise ValueError(f"Error multiplying numbers: {e}")
+    print(f"Result of multiplying {a} and {b} is {z}")
+    #use the task template to format the output and return the result
+
     return z
 #+++++++++++++++++++
 
@@ -80,10 +85,14 @@ async def generate_text_phi2(request: Request):
     
     if match:
         a, b = int(match.group(1)), int(match.group(2))
-        print(a, b)
-        result = multiply(a, b)
+        print(type(a), type(b), a, b)
+        #call the multiply tool and format using task template
+        result = multiply.invoke({"a":a, "b":b})
+
+        #format response using task template
         response = f"The result of multiplying {a} and {b} is {result}"
         return {"response": response, "tool_used": "multiply", "result": result}
+        #return task_template.format(instruction=result)
     else:
         prompt = ChatPromptTemplate.from_template(formatted_prompt)
     
