@@ -58,7 +58,7 @@ with st.chat_message("assistant"):
                 #st.markdown(generated_text)
                 #copy only the "Answer:" part and send to chat
                 if "Output:" in generated_text:
-                    answer_part = generated_text.split("Output:")[-1].strip()
+                    answer_part = generated_text.split("Output:###Response:")[-1].strip()
                     print(f"inside answer part: {generated_text}")
                     print(f"Extracted answer part: {answer_part}")
                     st.markdown(answer_part)
