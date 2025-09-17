@@ -1,34 +1,42 @@
-import transformers
 import torch
-from transformers import AutoTokenizer, pipeline, AutoModelForCausalLM #, BitsAndBytesConfig
+from transformers import AutoTokenizer, pipeline, AutoModelForCausalLM
 from langchain.prompts import PromptTemplate
 from langchain.chains.llm import LLMChain
+import sys
+import os
+
+# Add parent directory to path to import logging_config
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from logging_config import get_logger
+
+# Setup logger for this module
+logger = get_logger("mspb_model")
 
 
-#load microsoft phi-2 model
-def load_phi_2_model(inp_model_name=None):
-    model_name = inp_model_name if inp_model_name else "microsoft/phi-2"
-    #bnb_config = BitsAndBytesConfig(load_in_8bit=True)
+OLLAMA_LLAMA3 = "/Users/achappa/.ollama/models/llama3.2:latest"
 
-    # "microsoft/phi-2"
+#load model
+def load_phi_2_model(inp_model_name):
+    model_name = inp_model_name
+    logger.info(f"Loading model: {model_name}")
+    
     tokenizer = AutoTokenizer.from_pretrained(model_name)
-
-# Load the 'microsoft/phi-2' model for causal language modeling. Use AutoModelForCausalLM.from_pretrained()
-# with torch_dtype='auto' and device_map='auto'
-
+    logger.info("Tokenizer loaded successfully")
+    
     model = AutoModelForCausalLM.from_pretrained(model_name,
-                                             trust_remote_code=True,
-                                             torch_dtype = torch.float32, #use float32 for cpu to avoid errors; torch_dtype='auto',
-                                             #quantization_config=bnb_config,
-                                             device_map='cpu')
-
+                                                      trust_remote_code=True,
+                                                      dtype = torch.float32,
+                                                      device_map='cpu',
+                                                      local_files_only=True)
+    logger.info("Model loaded successfully")
     return model, tokenizer
 
 # Create a text generation pipeline using the model and tokenizer
 #use prompt template to load the model
 
 def get_text_generator(model, tokenizer):
-
+    logger.info("Creating text generation pipeline")
+    
     pl = pipeline (
         "text-generation",
         model= model,
@@ -41,12 +49,14 @@ def get_text_generator(model, tokenizer):
         repetition_penalty=1.2, # Penalize repetition
         do_sample=True # Enable sampling for varied text
     )
+    logger.info("Text generation pipeline created successfully")
     return pl
 
 def generate_text(prompt,generator):
     # Generate text using the pipeline
-    print( f"Generating text for prompt: {prompt}")
+    logger.info(f"Generating text for prompt: {prompt}")
     outputs = generator(prompt, max_length=256, num_return_sequences=1)
+    logger.debug(f"Generated {len(outputs)} output sequences")
     return outputs[0]['generated_text']
 
 #create a joblib to export the model and tokenizer

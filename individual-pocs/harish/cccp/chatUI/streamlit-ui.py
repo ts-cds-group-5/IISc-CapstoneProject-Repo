@@ -3,6 +3,16 @@
 import streamlit as st
 import requests
 import json
+import sys
+import os
+
+# Add parent directory to path to import logging_config
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from logging_config import setup_logging, get_logger
+
+# Setup logging
+logger = get_logger("streamlit_ui")
+setup_logging()
 
 
 #configure FAST API server URL
@@ -39,8 +49,8 @@ with st.chat_message("assistant"):
         #https://fmelihh.medium.com/a-practical-guide-to-mcp-elicitation-with-fastapi-fastmcp-65f57fd91896
         # Send the user message to the FastAPI server and wait for a response with wait=True
         try:
-            #print data to be sent
-            print(f"Sending prompt to FastAPI server: {prompt}")
+            # Log data to be sent
+            logger.info(f"Sending prompt to FastAPI server: {prompt}")
             #call generate endpoint
             response = requests.post(
                 f"{FAPI_URL}/generate",
@@ -48,19 +58,19 @@ with st.chat_message("assistant"):
                 data=json.dumps({"prompt": prompt, "user_id": "default_user"})
             )
             response_data = response.json()
-            print(f"Response data from FastAPI server: {response_data}")
+            logger.debug(f"Response data from FastAPI server: {response_data}")
             
             #parse the response data to get the generated text
             generated_text = response_data.get("generated_text", "")
-            print(f"Received response from FastAPI server: {generated_text}")
+            logger.info(f"Received response from FastAPI server: {generated_text}")
 
             with st.chat_message("assistant"):
                 #st.markdown(generated_text)
                 #copy only the "Answer:" part and send to chat
                 if "Output:" in generated_text:
                     answer_part = generated_text.split("Output:###Response:")[-1].strip()
-                    print(f"inside answer part: {generated_text}")
-                    print(f"Extracted answer part: {answer_part}")
+                    logger.debug(f"Full generated text: {generated_text}")
+                    logger.debug(f"Extracted answer part: {answer_part}")
                     st.markdown(answer_part)
                 else:
                     answer_part = generated_text
@@ -71,6 +81,8 @@ with st.chat_message("assistant"):
             
             #handle exceptions and http errors
             if response.status_code != 200:
+                logger.error(f"HTTP Error: {response.status_code} - {response.text}")
                 st.error(f"Error: {response.status_code} - {response.text}")
         except Exception as e:
+            logger.error(f"Exception occurred: {str(e)}")
             st.error(f"Error: {str(e)}")

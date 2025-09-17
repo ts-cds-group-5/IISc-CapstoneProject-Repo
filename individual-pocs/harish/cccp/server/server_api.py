@@ -6,14 +6,21 @@ from pydantic import BaseModel
 from mspb_model import load_phi_2_model, get_text_generator, generate_text
 from langchain.prompts import PromptTemplate, ChatPromptTemplate
 from langchain.chains.llm import LLMChain
-from langchain_huggingface import HuggingFacePipeline
+from langchain_community.llms import HuggingFacePipeline
 from langchain.chat_models import init_chat_model
 from langchain_core.output_parsers import StrOutputParser, PydanticOutputParser,PydanticToolsParser
-#from langgraph.func import entrypoint, task
-from langgraph.graph import state, StateGraph, START, END
-from langgraph.prebuilt import ToolNode
 from langchain_core.tools import tool
 import re
+import sys
+import os
+
+# Add parent directory to path to import logging_config
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from logging_config import setup_logging, get_logger
+
+# Setup logging
+logger = get_logger("server_api")
+setup_logging()
 
 
 #Use LLMChain from langchain to create a chain with the prompt template and the model
@@ -36,15 +43,17 @@ async def root():
 #+++++++++++++++++++
 #define task template for structured output
 def task_template(instruction: str) :
-    print(f"Creating task template for instruction: {instruction}")
+    logger.info(f"Creating task template for instruction: {instruction}")
     task_template = '''You are a friendly chatbot assistant that gives structured output.
     Your role is to arrange the given task in this structure.
     ### instruction:\n{instruction}\n\nOutput:###Response:\n'''    
     return task_template.format(instruction=instruction)
 #+++++++++++++++++++
+OLLAMA_LLAMA3 = "/Users/achappa/.ollama/models/llama3.2:latest"
+inp_model_name = "microsoft/phi-2"
 
 #load the model and tokenizer, set up a pipeline and HuggingFacePipeline
-model, tokenizer = load_phi_2_model()
+model, tokenizer = load_phi_2_model(inp_model_name)
 plmspb = get_text_generator(model, tokenizer) #pipeline object for mspb model
 hfpl = HuggingFacePipeline(pipeline=plmspb)
 
@@ -53,14 +62,14 @@ hfpl = HuggingFacePipeline(pipeline=plmspb)
 @tool
 def multiply(a: int, b: int) -> int:
     """Multiplies two numbers and returns the result."""
-    print(f"inside multiply tool with a: {a}, b: {b} and types {type(a)}, {type(b)}")
+    logger.debug(f"Inside multiply tool with a: {a}, b: {b} and types {type(a)}, {type(b)}")
     try:
-        print(f"inside Multiplying {a} and {b}")
+        logger.info(f"Multiplying {a} and {b}")
         z = a / b
     except Exception as e:
-        # Log or handle the error as needed
+        logger.error(f"Error multiplying numbers: {e}")
         raise ValueError(f"Error multiplying numbers: {e}")
-    print(f"Result of multiplying {a} and {b} is {z}")
+    logger.info(f"Result of multiplying {a} and {b} is {z}")
     #use the task template to format the output and return the result
 
     return z
@@ -73,19 +82,19 @@ async def generate_text_phi2(request: Request):
 
     prompt = data.get("prompt", "")
     formatted_prompt = task_template(prompt)
-    print(f"Received prompt: {prompt}")
-    print(f"Formatted prompt: {formatted_prompt}")
+    logger.info(f"Received prompt: {prompt}")
+    logger.debug(f"Formatted prompt: {formatted_prompt}")
 
     multiply_pattern = re.compile(
         r"multiply\s+(\d+)\s*(?:and|by|with)?\s*(\d+)", re.IGNORECASE
     )
-    #print (multiply_pattern)
+    logger.debug(f"Regex pattern: {multiply_pattern}")
     match = multiply_pattern.search(formatted_prompt)
-    print(f"Regex match: {match}")
+    logger.debug(f"Regex match: {match}")
     
     if match:
         a, b = int(match.group(1)), int(match.group(2))
-        print(type(a), type(b), a, b)
+        logger.debug(f"Extracted numbers - type(a): {type(a)}, type(b): {type(b)}, a: {a}, b: {b}")
         #call the multiply tool and format using task template
         result = multiply.invoke({"a":a, "b":b})
 
@@ -102,10 +111,10 @@ async def generate_text_phi2(request: Request):
     #call the model using HuggingFace pipeline, LLMChain and StrOutputParser
         chain =  hfpl | StrOutputParser()
         result = chain.invoke(formatted_prompt)
-        print(f"Chain result: {result}")
+        logger.info(f"Chain result: {result}")
 
     #    generated_text = generate_text(formatted_prompt, hfpl)
-    #    print(f"Generated text: {generated_text}")
+    #    logger.debug(f"Generated text: {generated_text}")
 
     return {"generated_text": result} #change this to result
 #+++++++++++++++++++
@@ -126,11 +135,15 @@ async def execute_multiply(request: Request):
     try:
         a = int(a)
         b = int(b)
+        logger.info(f"Executing multiply tool with a={a}, b={b}")
         result = multiply(a,b)
+        logger.info(f"Multiply tool result: {result}")
         return {"result": result, "status": "success"}
-    except ValueError:
+    except ValueError as e:
+        logger.error(f"ValueError in multiply tool: {e}")
         return {"error": "Invalid input. Please provide integers for a and b.", "status": "error"}
     except Exception as e:
+        logger.error(f"Exception in multiply tool: {e}")
         return {"error": str(e), "status": "error"}
 
 
