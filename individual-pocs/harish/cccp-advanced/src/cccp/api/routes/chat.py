@@ -10,7 +10,8 @@ from langchain_core.tools import tool
 
 from cccp.core.logging import get_logger
 from cccp.core.exceptions import ModelError, ToolError
-from cccp.models.phi2_model import get_model_instance
+from cccp.services.model_service import ModelService
+#from cccp.models.phi2_model import get_model_instance
 from cccp.api.models.requests import ChatRequest
 from cccp.api.models.responses import ChatResponse, ErrorResponse
 from cccp.services.chat_service import ChatService
@@ -102,7 +103,9 @@ async def generate_response(request: ChatRequest) -> ChatResponse:
             logger.info("Using model for general chat")
             
             # Get model instance
-            model = get_model_instance()
+#            model = get_model_instance()
+            model_service = ModelService()
+            model = model_service.get_model()
             
             # Create formatted prompt
             formatted_prompt = create_task_template(request.prompt)

@@ -138,7 +138,8 @@ class OllamaModel(BaseModel):
         """Test the model with a simple prompt."""
         try:
             test_prompt = "Hello, how are you?"
-            response = self._make_generation_request(test_prompt, {"max_tokens": 10})
+            generation_params = self._prepare_generation_params(max_length=10)
+            response = self._make_generation_request(test_prompt, generation_params)
             
             if not response or 'response' not in response:
                 raise ModelError("Model test failed - no response generated")
