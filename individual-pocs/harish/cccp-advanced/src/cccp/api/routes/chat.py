@@ -16,9 +16,11 @@ from cccp.api.models.requests import ChatRequest
 from cccp.api.models.responses import ChatResponse, ErrorResponse
 from cccp.services.chat_service import ChatService
 
+#adding for Langgraph agentic application
+from cccp.agents.workflows.chat_agent import create_chat_agent
+
 logger = get_logger(__name__)
 router = APIRouter(prefix="/chat", tags=["chat"])
-
 
 # Tool definitions (moved from original server_api.py)
 @tool
@@ -99,28 +101,44 @@ async def generate_response(request: ChatRequest) -> ChatResponse:
             )
         
         else:
-            # Use model for general chat
-            logger.info("Using model for general chat")
+        # Use LangGraph agent for general chat
+            logger.info("Using LangGraph agent for general chat")
             
-            # Get model instance
-#            model = get_model_instance()
-            model_service = ModelService()
-            model = model_service.get_model()
+            # Create and invoke the agent
+            agent = create_chat_agent()
+            result = agent.invoke({
+                "user_input": request.prompt, 
+                "messages": []
+            })
+            response_text = result["response"]
             
-            # Create formatted prompt
-            formatted_prompt = create_task_template(request.prompt)
-            logger.debug(f"Formatted prompt: {formatted_prompt}")
+            logger.info(f"Generated response: {response_text}")
+
+#            prior code for model based chat ***
+#             # Use model for general chat
+#             logger.info("Using model for general chat")
             
-            # Generate response using model
-            generated_text = model.generate(formatted_prompt)
-            logger.info(f"Generated response: {generated_text}")
+#             # Get model instance
+# #            model = get_model_instance()
+#             model_service = ModelService()
+#             model = model_service.get_model()
             
-            # Extract the response part
-            if "Output:###Response:" in generated_text:
-                response_text = generated_text.split("Output:###Response:")[-1].strip()
-                logger.debug(f"Extracted response: {response_text}")
-            else:
-                response_text = generated_text
+#             # Create formatted prompt
+#             formatted_prompt = create_task_template(request.prompt)
+#             logger.debug(f"Formatted prompt: {formatted_prompt}")
+            
+#             # Generate response using model
+#             generated_text = model.generate(formatted_prompt)
+#             logger.info(f"Generated response: {generated_text}")
+            
+#             # Extract the response part
+#             if "Output:###Response:" in generated_text:
+#                 response_text = generated_text.split("Output:###Response:")[-1].strip()
+#                 logger.debug(f"Extracted response: {response_text}")
+#             else:
+#                 response_text = generated_text
+
+
             
             execution_time = time.time() - start_time
             
@@ -130,7 +148,7 @@ async def generate_response(request: ChatRequest) -> ChatResponse:
                 user_id=request.user_id,
                 metadata={
                     "execution_time": execution_time,
-                    "model_used": model.model_name
+                    "model_used": result.get("model_used", "langgraph_agent")
                 }
             )
     
