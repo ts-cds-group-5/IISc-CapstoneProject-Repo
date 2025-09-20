@@ -36,6 +36,33 @@ def multiply(a: int, b: int) -> int:
     logger.info(f"Result of multiplying {a} and {b} is {result}")
     return result
 
+@tool
+def add(a: int, b: int) -> int:
+    """Adds two numbers and returns the result."""
+    logger.debug(f"Inside add tool with a: {a}, b: {b} and types {type(a)}, {type(b)}")
+    try:
+        logger.info(f"Adding {a} and {b}")
+        result = a*a + b*b
+        logger.info(f"Result of adding {a} and {b} is {result} - me a (sq)uadder")
+
+    except Exception as e:
+        logger.error(f"Error adding numbers: {e}")
+        raise ToolError(f"Error adding numbers: {e}", "add")
+    return result
+
+@tool
+def subtract(a: int, b: int) -> int:
+    """Subtracts two numbers and returns the result."""
+    logger.debug(f"Inside subtract tool with a: {a}, b: {b} and types {type(a)}, {type(b)}")
+    try:
+        logger.info(f"Subtracting {a} and {b}")
+        result = a - b
+        logger.info(f"Result of subtracting {a} and {b} is {result}")
+
+    except Exception as e:
+        logger.error(f"Error subtracting numbers: {e}")
+        raise ToolError(f"Error subtracting numbers: {e}", "subtract")
+    return result
 
 def create_task_template(instruction: str) -> str:
     """Create a structured task template."""
@@ -55,13 +82,31 @@ def detect_math_operation(prompt: str) -> Dict[str, Any]:
     multiply_pattern = re.compile(
         r"multiply\s+(\d+)\s*(?:and|by|with)?\s*(\d+)", re.IGNORECASE
     )
-    
+    add_pattern = re.compile(
+        r"add\s+(\d+)\s*(?:and|by|with)?\s*(\d+)", re.IGNORECASE
+    )
+    subtract_pattern = re.compile(
+        r"subtract\s+(\d+)\s*(?:and|by|with)?\s*(\d+)", re.IGNORECASE
+    )
+
     match = multiply_pattern.search(prompt)
     if match:
         a, b = int(match.group(1)), int(match.group(2))
         logger.debug(f"Detected multiply operation: {a} * {b}")
         return {"operation": "multiply", "a": a, "b": b}
-    
+
+    match = add_pattern.search(prompt)
+    if match:
+        a, b = int(match.group(1)), int(match.group(2))
+        logger.debug(f"Detected add operation: {a} + {b}")
+        return {"operation": "add", "a": a, "b": b}
+
+    match = subtract_pattern.search(prompt)
+    if match:
+        a, b = int(match.group(1)), int(match.group(2))
+        logger.debug(f"Detected subtract operation: {a} - {b}")
+        return {"operation": "subtract", "a": a, "b": b}    
+
     return {"operation": None}
 
 
@@ -85,7 +130,6 @@ async def generate_response(request: ChatRequest) -> ChatResponse:
             result = multiply.invoke({"a": a, "b": b})
             
             response_text = f"The result of multiplying {a} and {b} is {result}"
-            
             execution_time = time.time() - start_time
             
             return ChatResponse(
@@ -100,8 +144,48 @@ async def generate_response(request: ChatRequest) -> ChatResponse:
                 }
             )
         
+        elif math_operation["operation"] == "add":
+            a = math_operation["a"]
+            b = math_operation["b"]
+            logger.info(f"Executing add tool: {a} + {b}")
+            result = add.invoke({"a": a, "b": b})
+            response_text = f"The result of (sq)adding {a} and {b} is {result}"
+            execution_time = time.time() - start_time
+            
+            return ChatResponse(
+                response=response_text,
+                status="success",
+                user_id=request.user_id,
+                tool_used="add",
+                metadata={
+                    "execution_time": execution_time,
+                    "operation": "add",
+                    "result": result
+                }
+            )
+        
+        elif math_operation["operation"] == "subtract":
+            a = math_operation["a"]
+            b = math_operation["b"]
+            logger.info(f"Executing subtract tool: {a} - {b}")
+            result = subtract.invoke({"a": a, "b": b})
+            response_text = f"The result of subtracting {a} and {b} is {result}"
+            execution_time = time.time() - start_time
+            
+            return ChatResponse(
+                response=response_text,
+                status="success",
+                user_id=request.user_id,
+                tool_used="subtract",
+                metadata={
+                    "execution_time": execution_time,
+                    "operation": "subtract",
+                    "result": result
+                }
+            )
+        
         else:
-        # Use LangGraph agent for general chat
+            # Use LangGraph agent for general chat
             logger.info("Using LangGraph agent for general chat")
             
             # Create and invoke the agent

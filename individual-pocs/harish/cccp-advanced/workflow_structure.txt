@@ -1,0 +1,13 @@
+LangGraph Workflow Structure
+========================================
+
+Nodes: ['__start__', 'chat', 'response', '__end__']
+Edges: [Edge(source='__start__', target='chat', data=None, conditional=False), Edge(source='chat', target='response', data=None, conditional=False), Edge(source='response', target='__end__', data=None, conditional=False)]
+Graph Type: Graph
+
+State Schema:
+- messages: List[BaseMessage]
+- user_input: str
+- response: str
+- tools_used: List[str]
+- error: Optional[str]
