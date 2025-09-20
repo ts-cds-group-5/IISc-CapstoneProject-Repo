@@ -1,5 +1,5 @@
 # src/cccp/agents/workflows/chat_agent.py
-from langgraph import StateGraph
+from langgraph.graph import StateGraph
 from cccp.agents.state import AgentState
 from cccp.agents.workflows.nodes.chat_node import chat_node
 from cccp.agents.workflows.nodes.response_node import response_node
