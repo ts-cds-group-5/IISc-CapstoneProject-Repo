@@ -54,30 +54,31 @@ cccp-advanced/
 ### Quick Start
 
 1. **Clone the repository**
+
    ```bash
    git clone <repository-url>
    cd cccp-advanced
    ```
-
 2. **Create virtual environment**
+
    ```bash
    python -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
    ```
-
 3. **Install dependencies**
+
    ```bash
    pip install -e .
    # Or for development:
    pip install -e ".[dev]"
    ```
-
 4. **Start the server**
+
    ```bash
    python scripts/start_server.py
    ```
-
 5. **Start the UI** (in another terminal)
+
    ```bash
    python scripts/start_ui.py
    ```
@@ -101,10 +102,11 @@ uv pip install -e ".[dev]"
 Start the FastAPI server:
 
 ```bash
-python scripts/start_server.py
+python -m debugpy --listen 0.0.0.0:5678 run.py server
 ```
 
 The API will be available at:
+
 - **API**: http://localhost:8000
 - **Documentation**: http://localhost:8000/docs
 - **Health Check**: http://localhost:8000/health
@@ -114,7 +116,7 @@ The API will be available at:
 Start the Streamlit UI:
 
 ```bash
-python scripts/start_ui.py
+python -m debugpy --listen 0.0.0.0:5679 run.py ui
 ```
 
 The UI will be available at: http://localhost:8501
@@ -186,6 +188,7 @@ CCCP Advanced supports multiple language models. You can easily switch between t
 #### Option 1: Using Environment Variables
 
 Create a `.env` file from the example:
+
 ```bash
 cp env.example .env
 ```
@@ -193,6 +196,7 @@ cp env.example .env
 Then modify the model settings in `.env`:
 
 **To use Phi-2:**
+
 ```bash
 # MODEL_NAME=microsoft/phi-2  # Uncomment this line
 MODEL_NAME=llama3.2:latest    # Comment out this line
@@ -200,12 +204,14 @@ MODEL_TYPE=phi2
 ```
 
 **To use Ollama (Llama 3.2):**
+
 ```bash
 MODEL_NAME=llama3.2:latest
 MODEL_TYPE=ollama
 ```
 
 **To use Auto-detection:**
+
 ```bash
 MODEL_NAME=llama3.2:latest
 # MODEL_TYPE=auto  # Uncomment this line
@@ -217,6 +223,7 @@ MODEL_TYPE=phi2    # Comment out this line
 Edit `src/cccp/core/config.py`:
 
 **To use Phi-2:**
+
 ```python
 # model_name: str = Field(default="microsoft/phi-2", env="MODEL_NAME")  # Uncomment
 model_name: str = Field(default="llama3.2:latest", env="MODEL_NAME")    # Comment out
@@ -224,12 +231,14 @@ model_type: str = Field(default="phi2", env="MODEL_TYPE")
 ```
 
 **To use Ollama:**
+
 ```python
 model_name: str = Field(default="llama3.2:latest", env="MODEL_NAME")
 model_type: str = Field(default="ollama", env="MODEL_TYPE")
 ```
 
 **To use Auto-detection:**
+
 ```python
 model_name: str = Field(default="llama3.2:latest", env="MODEL_NAME")
 # model_type: str = Field(default="auto", env="MODEL_TYPE")  # Uncomment
@@ -241,23 +250,24 @@ model_type: str = Field(default="phi2", env="MODEL_TYPE")    # Comment out
 If you want to use Ollama models:
 
 1. **Install Ollama:**
+
    ```bash
    # macOS
    brew install ollama
-   
+
    # Linux
    curl -fsSL https://ollama.ai/install.sh | sh
-   
+
    # Windows
    # Download from https://ollama.ai/download
    ```
-
 2. **Start Ollama service:**
+
    ```bash
    ollama serve
    ```
-
 3. **Pull a model:**
+
    ```bash
    ollama pull llama3.2:latest
    # or
@@ -265,8 +275,8 @@ If you want to use Ollama models:
    # or
    ollama pull mistral:latest
    ```
-
 4. **Configure CCCP to use Ollama:**
+
    ```bash
    # In your .env file
    MODEL_NAME=llama3.2:latest
@@ -275,12 +285,12 @@ If you want to use Ollama models:
 
 ### Model Comparison
 
-| Model | Type | Size | Speed | Quality | Use Case |
-|-------|------|------|-------|---------|----------|
-| Phi-2 | Local | ~2.7GB | Fast | Good | Development, Testing |
-| Llama 3.2 | Local (Ollama) | ~2GB | Fast | Excellent | Production, General Use |
-| CodeLlama | Local (Ollama) | ~3.8GB | Medium | Excellent | Code Generation |
-| Mistral | Local (Ollama) | ~4.1GB | Medium | Excellent | General Use |
+| Model     | Type           | Size   | Speed  | Quality   | Use Case                |
+| --------- | -------------- | ------ | ------ | --------- | ----------------------- |
+| Phi-2     | Local          | ~2.7GB | Fast   | Good      | Development, Testing    |
+| Llama 3.2 | Local (Ollama) | ~2GB   | Fast   | Excellent | Production, General Use |
+| CodeLlama | Local (Ollama) | ~3.8GB | Medium | Excellent | Code Generation         |
+| Mistral   | Local (Ollama) | ~4.1GB | Medium | Excellent | General Use             |
 
 ### Testing Your Model Setup
 
@@ -297,16 +307,19 @@ python run.py server
 ### Troubleshooting
 
 **Ollama not working:**
+
 - Ensure Ollama service is running: `ollama serve`
 - Check if the model is pulled: `ollama list`
 - Verify the model name in your configuration
 
 **Phi-2 not loading:**
+
 - Check internet connection (first download)
 - Verify sufficient disk space (~3GB)
 - Check Python dependencies are installed
 
 **Auto-detection issues:**
+
 - Ensure at least one model type is properly configured
 - Check logs for specific error messages
 
@@ -373,6 +386,7 @@ pre-commit install
 ### Models
 
 #### ChatRequest
+
 ```json
 {
   "prompt": "string",
@@ -384,6 +398,7 @@ pre-commit install
 ```
 
 #### ChatResponse
+
 ```json
 {
   "response": "string",
@@ -431,4 +446,3 @@ For questions and support, please open an issue on GitHub.
 ---
 
 **Made with ❤️ by the CCCP Advanced team**
-
