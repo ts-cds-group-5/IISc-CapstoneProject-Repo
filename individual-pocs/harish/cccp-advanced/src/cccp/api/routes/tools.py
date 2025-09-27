@@ -7,176 +7,66 @@ from cccp.core.logging import get_logger
 from cccp.core.exceptions import ToolError
 from cccp.api.models.requests import ToolRequest
 from cccp.api.models.responses import ToolResponse, ErrorResponse
+from langchain_community.llms import HuggingFacePipeline
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.tools import tool
+# add tools from cccp.tools.registry
+from cccp.tools import get_tool, get_all_tools, tool_registry
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/tools", tags=["tools"])
 
-
-# Tool implementations
-def multiply_tool(a: int, b: int) -> int:
-    """Multiply two numbers."""
-    logger.debug(f"Executing multiply tool: {a} * {b}")
-    try:
-        result = a * b
-        logger.info(f"Multiply result: {a} * {b} = {result}")
-        return result
-    except Exception as e:
-        logger.error(f"Error in multiply tool: {str(e)}")
-        raise ToolError(f"Error multiplying numbers: {e}", "multiply")
-
-
-def add_tool(a: int, b: int) -> int:
-    """Add two numbers."""
-    logger.debug(f"Executing add tool: {a} + {b}")
-    try:
-        result = a + b
-        logger.info(f"Add result: {a} + {b} = {result}")
-        return result
-    except Exception as e:
-        logger.error(f"Error in add tool: {str(e)}")
-        raise ToolError(f"Error adding numbers: {e}", "add")
-
-
-def subtract_tool(a: int, b: int) -> int:
-    """Subtract two numbers."""
-    logger.debug(f"Executing subtract tool: {a} - {b}")
-    try:
-        result = a - b
-        logger.info(f"Subtract result: {a} - {b} = {result}")
-        return result
-    except Exception as e:
-        logger.error(f"Error in subtract tool: {str(e)}")
-        raise ToolError(f"Error subtracting numbers: {e}", "subtract")
-
-
-# Available tools registry
-AVAILABLE_TOOLS = {
-    "multiply": multiply_tool,
-    "add": add_tool,
-    "subtract": subtract_tool,
-}
-
-
-@router.post("/multiply", response_model=ToolResponse)
-async def execute_multiply(request: ToolRequest) -> ToolResponse:
-    """Execute the multiply tool."""
+@router.post("/{tool_name}", response_model=ToolResponse)
+async def execute_tool(tool_name: str, request: ToolRequest) -> ToolResponse:
+    """Execute any registered tool.""" #@todo: can bring in identity and access to check tool privileges for the run
     start_time = time.time()
-    
     try:
-        # Validate parameters
-        if "a" not in request.parameters or "b" not in request.parameters:
-            raise HTTPException(
-                status_code=400,
-                detail=ErrorResponse(
-                    error="Missing required parameters: 'a' and 'b'",
-                    error_code="VALIDATION_ERROR",
-                    details={"required_parameters": ["a", "b"]}
-                ).dict()
-            )
-        
-        a = int(request.parameters["a"])
-        b = int(request.parameters["b"])
-        
-        logger.info(f"Executing multiply tool with a={a}, b={b}")
-        result = multiply_tool(a, b)
-        
-        execution_time = time.time() - start_time
-        
+        logger.info(f"Executing tool: {tool_name}")
+
+        #get the specific tool instance
+        tool = get_tool(tool_name)
+
+        #execute the tool
+        result = tool.run(**request.parameters)
+
+        #return the result
         return ToolResponse(
             result=result,
             status="success",
-            tool_name="multiply",
-            execution_time=execution_time
+            tool_name=tool_name,
+            execution_time=time.time() - start_time
         )
-    
+
     except ValueError as e:
-        logger.error(f"ValueError in multiply tool: {e}")
+        logger.error(f"Error executing tool: {e}")
         raise HTTPException(
-            status_code=400,
+            status_code=404, #tool not found
             detail=ErrorResponse(
-                error=f"Invalid input: {str(e)}",
-                error_code="VALIDATION_ERROR",
-                details={"tool_name": "multiply"}
-            ).dict()
-        )
-    
+                error=f"Tool '{tool_name}' not found",
+                error_code="TOOL_NOT_FOUND",
+                details = {"available_tools": tool_registry.get_tool_names()}
+            ).model_dump())
+
     except ToolError as e:
-        logger.error(f"ToolError in multiply tool: {e}")
+        logger.error(f"Tool error: {e}")
         raise HTTPException(
             status_code=500,
             detail=ErrorResponse(
                 error=str(e),
                 error_code="TOOL_ERROR",
-                details={"tool_name": "multiply"}
-            ).dict()
-        )
-    
+                details={"tool_name": e.tool_name}
+            ).model_dump())
+
     except Exception as e:
-        logger.error(f"Unexpected error in multiply tool: {e}")
+        logger.error(f"Unexpected error: {e}")
         raise HTTPException(
             status_code=500,
             detail=ErrorResponse(
-                error=f"Internal server error: {str(e)}",
+                error=f"Internal server error: {e}",
                 error_code="INTERNAL_ERROR",
-                details={"tool_name": "multiply"}
-            ).dict()
-        )
-
-
-@router.post("/add", response_model=ToolResponse)
-async def execute_add(request: ToolRequest) -> ToolResponse:
-    """Execute the add tool."""
-    start_time = time.time()
-    
-    try:
-        # Validate parameters
-        if "a" not in request.parameters or "b" not in request.parameters:
-            raise HTTPException(
-                status_code=400,
-                detail=ErrorResponse(
-                    error="Missing required parameters: 'a' and 'b'",
-                    error_code="VALIDATION_ERROR",
-                    details={"required_parameters": ["a", "b"]}
-                ).dict()
+                details = {"tool_name": e.tool_name}
+            ).model_dump()
             )
-        
-        a = int(request.parameters["a"])
-        b = int(request.parameters["b"])
-        
-        logger.info(f"Executing add tool with a={a}, b={b}")
-        result = add_tool(a, b)
-        
-        execution_time = time.time() - start_time
-        
-        return ToolResponse(
-            result=result,
-            status="success",
-            tool_name="add",
-            execution_time=execution_time
-        )
-    
-    except ValueError as e:
-        logger.error(f"ValueError in add tool: {e}")
-        raise HTTPException(
-            status_code=400,
-            detail=ErrorResponse(
-                error=f"Invalid input: {str(e)}",
-                error_code="VALIDATION_ERROR",
-                details={"tool_name": "add"}
-            ).dict()
-        )
-    
-    except Exception as e:
-        logger.error(f"Unexpected error in add tool: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=ErrorResponse(
-                error=f"Internal server error: {str(e)}",
-                error_code="INTERNAL_ERROR",
-                details={"tool_name": "add"}
-            ).dict()
-        )
-
 
 @router.get("/", response_model=Dict[str, Any])
 async def list_tools() -> Dict[str, Any]:
@@ -191,23 +81,221 @@ async def list_tools() -> Dict[str, Any]:
         }
     }
 
-
 @router.get("/{tool_name}", response_model=Dict[str, Any])
 async def get_tool_info(tool_name: str) -> Dict[str, Any]:
     """Get information about a specific tool."""
-    if tool_name not in AVAILABLE_TOOLS:
+    try:
+        return tool_registry.get_tool_info(tool_name)
+    except ValueError as e:
+        logger.error(f"Error getting tool info: {e}")
         raise HTTPException(
             status_code=404,
             detail=ErrorResponse(
                 error=f"Tool '{tool_name}' not found",
                 error_code="TOOL_NOT_FOUND",
-                details={"available_tools": list(AVAILABLE_TOOLS.keys())}
-            ).dict()
-        )
+                details = {"available_tools": tool_registry.get_tool_names()}
+            ).model_dump())
     
-    return {
-        "name": tool_name,
-        "description": f"{tool_name} tool",
-        "available": True
-    }
+
+
+########################################################
+# Old Tool implementations - to be removed
+# now tools are in cccp.tools and registered in tool_registry
+        #     detail=ErrorResponse(
+        #         error=f"Internal server error: {e}",
+        #         error_code="INTERNAL_ERROR",
+        #         details = {"available_tools": list(tool_registry.keys())}
+        #     ).dict()
+        # )
+# Updated llm flow is in cccp.agents.workflows.chat_agent.py
+########################################################
+# Tool implementations
+# @tool
+# def multiply_tool(a: int, b: int) -> int:
+#     """Multiply two numbers."""
+#     logger.debug(f"Executing multiply tool: {a} * {b}")
+#     try:
+#         result = a * b
+#         logger.info(f"Multiply result: {a} * {b} = {result}")
+#         return result
+#     except Exception as e:
+#         logger.error(f"Error in multiply tool: {str(e)}")
+#         raise ToolError(f"Error multiplying numbers: {e}", "multiply")
+
+# @tool
+# def add_tool(a: int, b: int) -> int:
+#     """Add two numbers."""
+#     logger.debug(f"Executing add tool: {a} + {b}")
+#     try:
+#         result = a + b
+#         logger.info(f"Add result: {a} + {b} = {result}")
+#         return result
+#     except Exception as e:
+#         logger.error(f"Error in add tool: {str(e)}")
+#         raise ToolError(f"Error adding numbers: {e}", "add")
+
+
+# @tool
+# def subtract_tool(a: int, b: int) -> int:
+#     """Subtract two numbers."""
+#     logger.debug(f"Executing subtract tool: {a} - {b}")
+#     try:
+#         result = a - b
+#         logger.info(f"Subtract result: {a} - {b} = {result}")
+#         return result
+#     except Exception as e:
+#         logger.error(f"Error in subtract tool: {str(e)}")
+#         raise ToolError(f"Error subtracting numbers: {e}", "subtract")
+
+
+# # Available tools registry
+# AVAILABLE_TOOLS = {
+#     "multiply": multiply_tool,
+#     "add": add_tool,
+#     "subtract": subtract_tool,
+# }
+# #Export tools for use in other modules - convert AVAILABLE_TOOLS to a list of tools
+# #for use in bind_tools method in base.py
+# tools = list(AVAILABLE_TOOLS.values())
+# logger.info(f"tools.py-> available tools: {[tool.name for tool in tools]}")
+
+# @router.post("/multiply", response_model=ToolResponse)
+# async def execute_multiply(request: ToolRequest) -> ToolResponse:
+#     """Execute the multiply tool."""
+#     start_time = time.time()
+    
+#     try:
+#         # Validate parameters
+#         if "a" not in request.parameters or "b" not in request.parameters:
+#             raise HTTPException(
+#                 status_code=400,
+#                 detail=ErrorResponse(
+#                     error="Missing required parameters: 'a' and 'b'",
+#                     error_code="VALIDATION_ERROR",
+#                     details={"required_parameters": ["a", "b"]}
+#                 ).dict()
+#             )
+        
+#         a = int(request.parameters["a"])
+#         b = int(request.parameters["b"])
+        
+#         logger.info(f"Executing multiply tool with a={a}, b={b}")
+#         result = multiply_tool(a, b)
+        
+#         execution_time = time.time() - start_time
+        
+#         return ToolResponse(
+#             result=result,
+#             status="success",
+#             tool_name="multiply",
+#             execution_time=execution_time
+#         )
+    
+#     except ValueError as e:
+#         logger.error(f"ValueError in multiply tool: {e}")
+#         raise HTTPException(
+#             status_code=400,
+#             detail=ErrorResponse(
+#                 error=f"Invalid input: {str(e)}",
+#                 error_code="VALIDATION_ERROR",
+#                 details={"tool_name": "multiply"}
+#             ).dict()
+#         )
+    
+#     except ToolError as e:
+#         logger.error(f"ToolError in multiply tool: {e}")
+#         raise HTTPException(
+#             status_code=500,
+#             detail=ErrorResponse(
+#                 error=str(e),
+#                 error_code="TOOL_ERROR",
+#                 details={"tool_name": "multiply"}
+#             ).dict()
+#         )
+    
+#     except Exception as e:
+#         logger.error(f"Unexpected error in multiply tool: {e}")
+#         raise HTTPException(
+#             status_code=500,
+#             detail=ErrorResponse(
+#                 error=f"Internal server error: {str(e)}",
+#                 error_code="INTERNAL_ERROR",
+#                 details={"tool_name": "multiply"}
+#             ).dict()
+#         )
+
+
+# @router.post("/add", response_model=ToolResponse)
+# async def execute_add(request: ToolRequest) -> ToolResponse:
+#     """Execute the add tool."""
+#     start_time = time.time()
+    
+#     try:
+#         # Validate parameters
+#         if "a" not in request.parameters or "b" not in request.parameters:
+#             raise HTTPException(
+#                 status_code=400,
+#                 detail=ErrorResponse(
+#                     error="Missing required parameters: 'a' and 'b'",
+#                     error_code="VALIDATION_ERROR",
+#                     details={"required_parameters": ["a", "b"]}
+#                 ).dict()
+#             )
+        
+#         a = int(request.parameters["a"])
+#         b = int(request.parameters["b"])
+        
+#         logger.info(f"Executing add tool with a={a}, b={b}")
+#         result = add_tool(a, b)
+        
+#         execution_time = time.time() - start_time
+        
+#         return ToolResponse(
+#             result=result,
+#             status="success",
+#             tool_name="add",
+#             execution_time=execution_time
+#         )
+    
+#     except ValueError as e:
+#         logger.error(f"ValueError in add tool: {e}")
+#         raise HTTPException(
+#             status_code=400,
+#             detail=ErrorResponse(
+#                 error=f"Invalid input: {str(e)}",
+#                 error_code="VALIDATION_ERROR",
+#                 details={"tool_name": "add"}
+#             ).dict()
+#         )
+    
+#     except Exception as e:
+#         logger.error(f"Unexpected error in add tool: {e}")
+#         raise HTTPException(
+#             status_code=500,
+#             detail=ErrorResponse(
+#                 error=f"Internal server error: {str(e)}",
+#                 error_code="INTERNAL_ERROR",
+#                 details={"tool_name": "add"}
+#             ).dict()
+#         )
+
+# @router.get("/{tool_name}", response_model=Dict[str, Any])
+# async def get_tool_info(tool_name: str) -> Dict[str, Any]:
+#     """Get information about a specific tool."""
+#     if tool_name not in AVAILABLE_TOOLS:
+#         raise HTTPException(
+#             status_code=404,
+#             detail=ErrorResponse(
+#                 error=f"Tool '{tool_name}' not found",
+#                 error_code="TOOL_NOT_FOUND",
+#                 details={"available_tools": list(AVAILABLE_TOOLS.keys())}
+#             ).dict()
+#         )
+    
+#     return {
+#         "name": tool_name,
+#         "description": f"{tool_name} tool",
+#         "available": True
+#     }
+
 

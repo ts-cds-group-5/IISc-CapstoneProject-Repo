@@ -22,47 +22,48 @@ from cccp.agents.workflows.chat_agent import create_chat_agent
 logger = get_logger(__name__)
 router = APIRouter(prefix="/chat", tags=["chat"])
 
+#delete all the tools here. Use tools.py tools
 # Tool definitions (moved from original server_api.py)
-@tool
-def multiply(a: int, b: int) -> int:
-    """Multiplies two numbers and returns the result."""
-    logger.debug(f"Inside multiply tool with a: {a}, b: {b} and types {type(a)}, {type(b)}")
-    try:
-        logger.info(f"Multiplying {a} and {b}")
-        result = a * b  # Fixed: was a / b in original
-    except Exception as e:
-        logger.error(f"Error multiplying numbers: {e}")
-        raise ToolError(f"Error multiplying numbers: {e}", "multiply")
-    logger.info(f"Result of multiplying {a} and {b} is {result}")
-    return result
+# @tool
+# def multiply(a: int, b: int) -> int:
+#     """Multiplies two numbers and returns the result."""
+#     logger.debug(f"Inside multiply tool with a: {a}, b: {b} and types {type(a)}, {type(b)}")
+#     try:
+#         logger.info(f"Multiplying {a} and {b}")
+#         result = a * b  # Fixed: was a / b in original
+#     except Exception as e:
+#         logger.error(f"Error multiplying numbers: {e}")
+#         raise ToolError(f"Error multiplying numbers: {e}", "multiply")
+#     logger.info(f"Result of multiplying {a} and {b} is {result}")
+#     return result
 
-@tool
-def add(a: int, b: int) -> int:
-    """Adds two numbers and returns the result."""
-    logger.debug(f"Inside add tool with a: {a}, b: {b} and types {type(a)}, {type(b)}")
-    try:
-        logger.info(f"Adding {a} and {b}")
-        result = a*a + b*b
-        logger.info(f"Result of adding {a} and {b} is {result} - me a (sq)uadder")
+# @tool
+# def add(a: int, b: int) -> int:
+#     """Adds two numbers and returns the result."""
+#     logger.debug(f"Inside add tool with a: {a}, b: {b} and types {type(a)}, {type(b)}")
+#     try:
+#         logger.info(f"Adding {a} and {b}")
+#         result = a*a + b*b
+#         logger.info(f"Result of adding {a} and {b} is {result} - me a (sq)uadder")
 
-    except Exception as e:
-        logger.error(f"Error adding numbers: {e}")
-        raise ToolError(f"Error adding numbers: {e}", "add")
-    return result
+#     except Exception as e:
+#         logger.error(f"Error adding numbers: {e}")
+#         raise ToolError(f"Error adding numbers: {e}", "add")
+#     return result
 
-@tool
-def subtract(a: int, b: int) -> int:
-    """Subtracts two numbers and returns the result."""
-    logger.debug(f"Inside subtract tool with a: {a}, b: {b} and types {type(a)}, {type(b)}")
-    try:
-        logger.info(f"Subtracting {a} and {b}")
-        result = a - b
-        logger.info(f"Result of subtracting {a} and {b} is {result}")
+# @tool
+# def subtract(a: int, b: int) -> int:
+#     """Subtracts two numbers and returns the result."""
+#     logger.debug(f"Inside subtract tool with a: {a}, b: {b} and types {type(a)}, {type(b)}")
+#     try:
+#         logger.info(f"Subtracting {a} and {b}")
+#         result = a - b
+#         logger.info(f"Result of subtracting {a} and {b} is {result}")
 
-    except Exception as e:
-        logger.error(f"Error subtracting numbers: {e}")
-        raise ToolError(f"Error subtracting numbers: {e}", "subtract")
-    return result
+#     except Exception as e:
+#         logger.error(f"Error subtracting numbers: {e}")
+#         raise ToolError(f"Error subtracting numbers: {e}", "subtract")
+#     return result
 
 def create_task_template(instruction: str) -> str:
     """Create a structured task template."""
@@ -76,38 +77,38 @@ Output:###Response:
 """
     return task_template.format(instruction=instruction)
 
+#@todo: remove this function and use tools instead
+#def detect_math_operation(prompt: str) -> Dict[str, Any]:
+    # """Detect if the prompt contains a math operation."""
+    # multiply_pattern = re.compile(
+    #     r"multiply\s+(\d+)\s*(?:and|by|with)?\s*(\d+)", re.IGNORECASE
+    # )
+    # add_pattern = re.compile(
+    #     r"add\s+(\d+)\s*(?:and|by|with)?\s*(\d+)", re.IGNORECASE
+    # )
+    # subtract_pattern = re.compile(
+    #     r"subtract\s+(\d+)\s*(?:and|by|with)?\s*(\d+)", re.IGNORECASE
+    # )
 
-def detect_math_operation(prompt: str) -> Dict[str, Any]:
-    """Detect if the prompt contains a math operation."""
-    multiply_pattern = re.compile(
-        r"multiply\s+(\d+)\s*(?:and|by|with)?\s*(\d+)", re.IGNORECASE
-    )
-    add_pattern = re.compile(
-        r"add\s+(\d+)\s*(?:and|by|with)?\s*(\d+)", re.IGNORECASE
-    )
-    subtract_pattern = re.compile(
-        r"subtract\s+(\d+)\s*(?:and|by|with)?\s*(\d+)", re.IGNORECASE
-    )
+    # match = multiply_pattern.search(prompt)
+    # if match:
+    #     a, b = int(match.group(1)), int(match.group(2))
+    #     logger.debug(f"Detected multiply operation: {a} * {b}")
+    #     return {"operation": "multiply", "a": a, "b": b}
 
-    match = multiply_pattern.search(prompt)
-    if match:
-        a, b = int(match.group(1)), int(match.group(2))
-        logger.debug(f"Detected multiply operation: {a} * {b}")
-        return {"operation": "multiply", "a": a, "b": b}
+    # match = add_pattern.search(prompt)
+    # if match:
+    #     a, b = int(match.group(1)), int(match.group(2))
+    #     logger.debug(f"Detected add operation: {a} + {b}")
+    #     return {"operation": "add", "a": a, "b": b}
 
-    match = add_pattern.search(prompt)
-    if match:
-        a, b = int(match.group(1)), int(match.group(2))
-        logger.debug(f"Detected add operation: {a} + {b}")
-        return {"operation": "add", "a": a, "b": b}
-
-    match = subtract_pattern.search(prompt)
-    if match:
-        a, b = int(match.group(1)), int(match.group(2))
-        logger.debug(f"Detected subtract operation: {a} - {b}")
-        return {"operation": "subtract", "a": a, "b": b}    
-
-    return {"operation": None}
+    # match = subtract_pattern.search(prompt)
+    # if match:
+    #     a, b = int(match.group(1)), int(match.group(2))
+    #     logger.debug(f"Detected subtract operation: {a} - {b}")
+    #     return {"operation": "subtract", "a": a, "b": b}    
+#    return {"operation": None}
+#@todo: remove this function and use tools instead
 
 
 @router.post("/generate", response_model=ChatResponse)
@@ -117,87 +118,108 @@ async def generate_response(request: ChatRequest) -> ChatResponse:
     
     try:
         logger.info(f"Received chat request: {request.prompt}")
-        
-        # Check for math operations first
-        math_operation = detect_math_operation(request.prompt)
-        
-        if math_operation["operation"] == "multiply":
-            # Use tool for math operations
-            a = math_operation["a"]
-            b = math_operation["b"]
+        logger.info("Using LangGraph agent for general chat")
             
-            logger.info(f"Executing multiply tool: {a} * {b}")
-            result = multiply.invoke({"a": a, "b": b})
-            
-            response_text = f"The result of multiplying {a} and {b} is {result}"
-            execution_time = time.time() - start_time
-            
-            return ChatResponse(
-                response=response_text,
-                status="success",
-                user_id=request.user_id,
-                tool_used="multiply",
-                metadata={
-                    "execution_time": execution_time,
-                    "operation": "multiply",
-                    "result": result
-                }
-            )
-        
-        elif math_operation["operation"] == "add":
-            a = math_operation["a"]
-            b = math_operation["b"]
-            logger.info(f"Executing add tool: {a} + {b}")
-            result = add.invoke({"a": a, "b": b})
-            response_text = f"The result of (sq)adding {a} and {b} is {result}"
-            execution_time = time.time() - start_time
-            
-            return ChatResponse(
-                response=response_text,
-                status="success",
-                user_id=request.user_id,
-                tool_used="add",
-                metadata={
-                    "execution_time": execution_time,
-                    "operation": "add",
-                    "result": result
-                }
-            )
-        
-        elif math_operation["operation"] == "subtract":
-            a = math_operation["a"]
-            b = math_operation["b"]
-            logger.info(f"Executing subtract tool: {a} - {b}")
-            result = subtract.invoke({"a": a, "b": b})
-            response_text = f"The result of subtracting {a} and {b} is {result}"
-            execution_time = time.time() - start_time
-            
-            return ChatResponse(
-                response=response_text,
-                status="success",
-                user_id=request.user_id,
-                tool_used="subtract",
-                metadata={
-                    "execution_time": execution_time,
-                    "operation": "subtract",
-                    "result": result
-                }
-            )
-        
-        else:
-            # Use LangGraph agent for general chat
-            logger.info("Using LangGraph agent for general chat")
-            
-            # Create and invoke the agent
-            agent = create_chat_agent()
-            result = agent.invoke({
+        # Create and invoke the agent
+        agent = create_chat_agent()
+        result = agent.invoke({
                 "user_input": request.prompt, 
                 "messages": []
             })
-            response_text = result["response"]
+        response_text = result["response"]            
+        
+        logger.info(f"Generated response: {response_text}")
             
-            logger.info(f"Generated response: {response_text}")
-
+        execution_time = time.time() - start_time
+            
+        return ChatResponse(
+                response=response_text,
+                status="success",
+                user_id=request.user_id,
+                metadata={
+                    "execution_time": execution_time,
+                    "model_used": result.get("model_used", "langgraph_agent")
+                }
+        # # Check for math operations first
+        # math_operation = detect_math_operation(request.prompt)
+        
+        # if math_operation["operation"] == "multiply":
+        #     # Use tool for math operations
+        #     a = math_operation["a"]
+        #     b = math_operation["b"]
+            
+        #     logger.info(f"Executing multiply tool: {a} * {b}")
+        #     result = multiply.invoke({"a": a, "b": b})
+            
+        #     response_text = f"The result of multiplying {a} and {b} is {result}"
+        #     execution_time = time.time() - start_time
+            
+        #     return ChatResponse(
+        #         response=response_text,
+        #         status="success",
+        #         user_id=request.user_id,
+        #         tool_used="multiply",
+        #         metadata={
+        #             "execution_time": execution_time,
+        #             "operation": "multiply",
+        #             "result": result
+        #         }
+        #     )
+        
+        # elif math_operation["operation"] == "add":
+        #     a = math_operation["a"]
+        #     b = math_operation["b"]
+        #     logger.info(f"Executing add tool: {a} + {b}")
+        #     result = add.invoke({"a": a, "b": b})
+        #     response_text = f"The result of (sq)adding {a} and {b} is {result}"
+        #     execution_time = time.time() - start_time
+            
+        #     return ChatResponse(
+        #         response=response_text,
+        #         status="success",
+        #         user_id=request.user_id,
+        #         tool_used="add",
+        #         metadata={
+        #             "execution_time": execution_time,
+        #             "operation": "add",
+        #             "result": result
+        #         }
+        #     )
+        
+        # elif math_operation["operation"] == "subtract":
+        #     a = math_operation["a"]
+        #     b = math_operation["b"]
+        #     logger.info(f"Executing subtract tool: {a} - {b}")
+        #     result = subtract.invoke({"a": a, "b": b})
+        #     response_text = f"The result of subtracting {a} and {b} is {result}"
+        #     execution_time = time.time() - start_time
+            
+        #     return ChatResponse(
+        #         response=response_text,
+        #         status="success",
+        #         user_id=request.user_id,
+        #         tool_used="subtract",
+        #         metadata={
+        #             "execution_time": execution_time,
+        #             "operation": "subtract",
+        #             "result": result
+        #         }
+        #     )
+        
+#        else:
+            # Use LangGraph agent for general chat
+            # logger.info("Using LangGraph agent for general chat")
+            #
+            # # Create and invoke the agent
+            # agent = create_chat_agent()
+            # result = agent.invoke({
+            #     "user_input": request.prompt, 
+            #     "messages": []
+            # })
+            # response_text = result["response"]
+            #
+            # logger.info(f"Generated response: {response_text}")
+#            
 #            prior code for model based chat ***
 #             # Use model for general chat
 #             logger.info("Using model for general chat")
@@ -223,18 +245,7 @@ async def generate_response(request: ChatRequest) -> ChatResponse:
 #                 response_text = generated_text
 
 
-            
-            execution_time = time.time() - start_time
-            
-            return ChatResponse(
-                response=response_text,
-                status="success",
-                user_id=request.user_id,
-                metadata={
-                    "execution_time": execution_time,
-                    "model_used": result.get("model_used", "langgraph_agent")
-                }
-            )
+            ) # end of chat response
     
     except ModelError as e:
         logger.error(f"Model error: {str(e)}")
@@ -276,6 +287,6 @@ async def chat_info() -> Dict[str, str]:
         "service": "CCCP Advanced Chat",
         "version": "0.1.0",
         "status": "active",
-        "available_tools": "multiply"
+        "available_tools": "multiply" #@todo: check if this is needed
     }
 

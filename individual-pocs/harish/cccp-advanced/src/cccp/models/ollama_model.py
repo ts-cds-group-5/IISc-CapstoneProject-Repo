@@ -4,11 +4,14 @@ import requests
 import json
 from typing import Optional, Dict, Any, List
 from pathlib import Path
-
 from cccp.core.logging import get_logger
 from cccp.core.exceptions import ModelError
 from cccp.core.config import get_settings
 from cccp.models.base import BaseModel, ModelConfig
+from cccp.tools import get_all_tools
+#import BaseMessage from langchain_core.messages.base
+from langchain_core.messages.base import BaseMessage
+
 
 logger = get_logger(__name__)
 
@@ -21,13 +24,17 @@ class OllamaModel(BaseModel):
         model_name: str = "llama3.2:latest",
         device: str = "cpu",  # Ollama handles device management
         config: Optional[ModelConfig] = None,
-        ollama_base_url: str = "http://localhost:11434"
+        ollama_base_url: str = "http://localhost:11434",
+        **kwargs
     ):
-        super().__init__(model_name, device)
+    #add model_name and device to __init__ by passing them to super().__init__ through kwargs
+        super().__init__(model_name, device, **kwargs)
         self.config = config or ModelConfig()
         self.ollama_base_url = ollama_base_url
         self._model_loaded = False
         
+        self.logger.info(f"OllamaModel {self.model_name} initialized with device {self.device}, config {config} and kwargs {kwargs}")
+
     def load(self) -> None:
         """Load the Ollama model (check if it's available)."""
         try:
@@ -53,6 +60,13 @@ class OllamaModel(BaseModel):
             self.logger.error(error_msg)
             raise ModelError(error_msg, self.model_name)
     
+    #override bind_tools method from base model in ollama model
+    # def bind_tools(self, tools: List[tools]) -> None:
+    #     """Bind tools to the LLM."""
+    #     self.tools = tools
+    #     self.logger.info(f"Tools bound to LLM: {[tool.name for tool in tools] }")
+    #     pass
+
     def generate(self, prompt: str, **kwargs) -> str:
         """Generate text from a prompt using Ollama."""
         if not self.is_loaded:
@@ -210,6 +224,26 @@ Your role is to arrange the given task in this structure.
         """Unload the model (Ollama keeps models in memory)."""
         self._model_loaded = False
         self.logger.info("Ollama model unloaded from memory")
+    
+    def _generate(
+    self,
+    messages: List[BaseMessage],
+    stop: Optional[List[str]] = None,
+    run_manager: Optional[Any] = None,
+    **kwargs: Any) -> Any:
+        """Generate a response from messages."""
+        # Convert messages to prompt and use your existing generate method
+        prompt = self._messages_to_prompt(messages)
+        return self.generate(prompt, **kwargs)
+
+    def _llm_type(self) -> str:
+        """Return type of language model."""
+        return "ollama" #OllamaModel
+
+    def _messages_to_prompt(self, messages: List[BaseMessage]) -> str:
+        """Convert messages to a single prompt string."""
+        # Implement message to prompt conversion
+        return "\n".join([msg.content for msg in messages])
 
 
 # Global model instance (singleton pattern)
@@ -219,7 +253,7 @@ _ollama_model_instance: Optional[OllamaModel] = None
 def get_ollama_model_instance() -> OllamaModel:
     """Get the global Ollama model instance (singleton)."""
     global _ollama_model_instance
-    
+#add OLLAMA_URL to kwargs    
     if _ollama_model_instance is None:
         settings = get_settings()
         _ollama_model_instance = OllamaModel(
@@ -229,7 +263,11 @@ def get_ollama_model_instance() -> OllamaModel:
                 max_length=settings.model_max_length,
                 temperature=settings.model_temperature,
                 repetition_penalty=settings.model_repetition_penalty
-            )
+            ),
+            **{
+                "ollama_base_url": settings.ollama_base_url,
+                **{}
+            }
         )
         _ollama_model_instance.load()
     
@@ -254,3 +292,5 @@ def is_ollama_running() -> bool:
         return response.status_code == 200
     except requests.exceptions.RequestException:
         return False
+
+
