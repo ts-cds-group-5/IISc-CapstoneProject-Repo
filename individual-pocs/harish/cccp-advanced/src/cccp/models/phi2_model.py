@@ -1,29 +1,37 @@
 """Phi-2 model implementation for CCCP Advanced."""
 
 import torch
-from typing import Optional, Tuple, Any, Dict
+from typing import Optional, Tuple, Any, List, Dict
 from transformers import AutoTokenizer, pipeline, AutoModelForCausalLM
-
 from cccp.core.logging import get_logger
 from cccp.core.exceptions import ModelError
 from cccp.core.config import get_settings
 from cccp.models.base import BaseModel, ModelConfig
+from cccp.tools import get_all_tools
+#import BaseMessage from langchain_core.messages.base
+from langchain_core.messages.base import BaseMessage
 
 logger = get_logger(__name__)
 
 
 class Phi2Model(BaseModel):
     """Phi-2 model implementation."""
-    
+    #add model_name and device to __init__ by passing them to super().__init__ through kwargs
     def __init__(
         self, 
         model_name: str = "microsoft/phi-2",
         device: str = "cpu",
-        config: Optional[ModelConfig] = None
+        config: Optional[ModelConfig] = None,
+        **kwargs
     ):
-        super().__init__(model_name, device)
+        super().__init__(model_name, device, **kwargs)
+        
+        self.logger.info(f"Phi2Model {self.model_name} initialized with device {self.device} and kwargs {kwargs}")
+        
         self.config = config or ModelConfig()
         self._pipeline = None
+
+        self.logger.info(f"Phi2Model {self.model_name} initialized with device {self.device}, config {config} and kwargs {kwargs}")
     
     def load(self) -> None:
         """Load the Phi-2 model and tokenizer."""
@@ -59,7 +67,7 @@ class Phi2Model(BaseModel):
             error_msg = f"Failed to load Phi-2 model: {str(e)}"
             self.logger.error(error_msg)
             raise ModelError(error_msg, self.model_name)
-    
+
     def generate(self, prompt: str, **kwargs) -> str:
         """Generate text from a prompt."""
         if not self.is_loaded:
@@ -101,6 +109,27 @@ Your role is to arrange the given task in this structure.
 
 Output:###Response:
 """
+
+    def _generate(
+        self,
+        messages: List[BaseMessage],
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[Any] = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Generate a response from messages."""
+        # Convert messages to prompt and use your existing generate method
+        prompt = self._messages_to_prompt(messages)
+        return self.generate(prompt, **kwargs)
+
+    def _llm_type(self) -> str:
+        """Return type of language model."""
+        return "phi2" 
+
+    def _messages_to_prompt(self, messages: List[BaseMessage]) -> str:
+        """Convert messages to a single prompt string."""
+        # Implement message to prompt conversion
+        return "\n".join([msg.content for msg in messages])
 
 
 # Convenience functions for backward compatibility
@@ -170,6 +199,8 @@ def get_model_instance() -> Phi2Model:
     
     if _model_instance is None:
         settings = get_settings()
+        logger.info(f"Getting model instance with settings {settings.model_name}, {settings.model_device}")
+#set model_name to settings.model_name in kwargs
         _model_instance = Phi2Model(
             model_name=settings.model_name,
             device=settings.model_device,
@@ -177,9 +208,9 @@ def get_model_instance() -> Phi2Model:
                 max_length=settings.model_max_length,
                 temperature=settings.model_temperature,
                 repetition_penalty=settings.model_repetition_penalty
-            )
+            ),
+            **{}
         )
         _model_instance.load()
     
     return _model_instance
-

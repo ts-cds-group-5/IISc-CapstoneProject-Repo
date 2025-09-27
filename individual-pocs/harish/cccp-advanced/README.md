@@ -439,10 +439,15 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - LangChain team for the AI framework
 - The open-source community
 
+## References
+ - Ollama 3.2 - Tool calling prompt (https://ollama.com/library/llama3.1:latest/blobs/948af2743fc7)
+ 
+
 ## 📞 Support
 
 For questions and support, please open an issue on GitHub.
 
 ---
 
-**Made with ❤️ by the CCCP Advanced team**
+**Made with ❤️ by the CDS Group 5 Batch 9 Team
+

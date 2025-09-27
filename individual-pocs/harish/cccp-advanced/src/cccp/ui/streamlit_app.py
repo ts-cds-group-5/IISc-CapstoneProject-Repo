@@ -32,8 +32,8 @@ class StreamlitApp:
         )
         
         # Title and header
-        st.title("🤖 CCCP Advanced")
-        st.subheader("Conversational Chatbot with LangGraph and MCP Server")
+        st.title("🤖 Evershop Customer Support Chatbot")
+        st.subheader("Evershop Customer Support Chatbot - Chat with our AI agent")
         
         # Sidebar
         self._create_sidebar()
@@ -97,7 +97,7 @@ class StreamlitApp:
     def _create_chat_interface(self) -> None:
         """Create the main chat interface."""
         # Welcome message
-        st.write("Welcome to the CCCP Advanced chatbot! You can chat with the bot below.")
+        st.write("Welcome to the Evershop customer support chatbot! You can chat with the bot below.")
         
         # Initialize chat history
         if "messages" not in st.session_state:
