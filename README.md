@@ -1,4 +1,4 @@
-# IISc-CapstoneProject
+# IISc-CapstoneProject-Repo
 
 Project 17: Customer Service and Conversational AI
 
@@ -48,9 +48,6 @@ flowchart LR
     WS <--> CSR
     Orchestrator --> RE
 ```
-
-
-
 
 ---
 
@@ -230,4 +227,3 @@ If you'd like, I can:
 - Produce a runnable analytics starter (Postgres export jobs + Python evaluation workers + Grafana dashboard templates).
 
 Which would you like next?
-
