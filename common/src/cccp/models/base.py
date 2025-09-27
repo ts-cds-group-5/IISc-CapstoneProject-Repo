@@ -52,9 +52,7 @@ class BaseModel(LoggerMixin, BaseChatModel):
     # Declare Pydantic fields properly
     model_name: str = Field(..., description="The name of the model")
     device: str = Field(default="cpu", description="The device to use for the model")
-    config: Optional[ModelConfig] = Field(default=None, description="Model configuration") 
-    #Note: add settings.ollama_base_url to kwargs in get_ollama_model_instance so the url for env is picked up by the model
-    ollama_base_url: str = Field(default="http://localhost:11434", description="Ollama base URL")
+    config: Optional[ModelConfig] = Field(default=None, description="Model configuration")
 
     def __init__(self, model_name: str, device: str = "cpu", config: Optional[ModelConfig] = None, **kwargs):
         #add model_name and device to __init__ by passing them to super().__init__ through kwargs: pydantic BaseModel

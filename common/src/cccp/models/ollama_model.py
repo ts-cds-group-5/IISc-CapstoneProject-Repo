@@ -9,6 +9,7 @@ from cccp.core.exceptions import ModelError
 from cccp.core.config import get_settings
 from cccp.models.base import BaseModel, ModelConfig
 from cccp.tools import get_all_tools
+from pydantic import Field
 #import BaseMessage from langchain_core.messages.base
 from langchain_core.messages.base import BaseMessage
 
@@ -19,6 +20,9 @@ logger = get_logger(__name__)
 class OllamaModel(BaseModel):
     """Ollama model implementation for local LLM inference."""
     
+    # Declare Ollama-specific Pydantic fields
+    ollama_base_url: str = Field(default="http://localhost:11434", description="Ollama base URL")
+    
     def __init__(
         self, 
         model_name: str = "llama3.2:latest",
@@ -27,8 +31,9 @@ class OllamaModel(BaseModel):
         ollama_base_url: str = "http://localhost:11434",
         **kwargs
     ):
-    #add model_name and device to __init__ by passing them to super().__init__ through kwargs
-        super().__init__(model_name, device, **kwargs)
+    #add model_name and device to __init__ by passing them to super().__init__ 
+    # through kwargs
+        super().__init__(model_name=model_name, device=device, config=config, **kwargs)
         self.config = config or ModelConfig()
         self.ollama_base_url = ollama_base_url
         self._model_loaded = False
@@ -263,11 +268,8 @@ def get_ollama_model_instance() -> OllamaModel:
                 max_length=settings.model_max_length,
                 temperature=settings.model_temperature,
                 repetition_penalty=settings.model_repetition_penalty
-            ),
-            **{
-                "ollama_base_url": settings.ollama_base_url,
-                **{}
-            }
+            ), 
+            ollama_base_url = settings.ollama_base_url
         )
         _ollama_model_instance.load()
     

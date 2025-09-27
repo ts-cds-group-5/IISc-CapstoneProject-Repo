@@ -11,7 +11,7 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from cccp.agents.workflows.chat_agent import create_chat_agent
+from cccp.agents.workflows.nodes.chat_agent import create_chat_agent
 from cccp.agents.state import AgentState
 
 def visualize_workflow():

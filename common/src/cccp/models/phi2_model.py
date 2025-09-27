@@ -24,12 +24,10 @@ class Phi2Model(BaseModel):
         config: Optional[ModelConfig] = None,
         **kwargs
     ):
-        super().__init__(model_name, device, **kwargs)
-        
+        super().__init__(model_name=model_name, device=device, config=config, **kwargs)
         self.logger.info(f"Phi2Model {self.model_name} initialized with device {self.device} and kwargs {kwargs}")
-        
+
         self.config = config or ModelConfig()
-        self._pipeline = None
 
         self.logger.info(f"Phi2Model {self.model_name} initialized with device {self.device}, config {config} and kwargs {kwargs}")
     
