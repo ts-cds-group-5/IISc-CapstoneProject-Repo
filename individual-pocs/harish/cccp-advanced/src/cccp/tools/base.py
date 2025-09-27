@@ -8,16 +8,9 @@ class BaseCCCPTool(LoggerMixin, BaseTool):
     """Base class for all CCCP tools."""
 
     def __init__(self, **kwargs):
-        # Set name and description before calling super().__init__
+        super().__init__(**kwargs)
         self.tool_name = self.__class__.__name__.lower().replace('tool', '')
         self.description = self._get_description()
-        
-        # Initialize with LangChain-compatible attributes
-        super().__init__(
-            name=self.tool_name,
-            description=self.description,
-            **kwargs
-        )
     
     @abstractmethod
     def _get_description(self) -> str:
@@ -91,26 +84,6 @@ class MathTool(BaseCCCPTool):
             return {"a": a_int, "b": b_int}
         except (ValueError, TypeError) as e:
             raise ToolError(f"Invalid input: {e}", self.tool_name)
-    
-    def run(self, a: int, b: int, **kwargs) -> Any:
-        """Run the mathematical tool."""
-        try:
-            # Validate inputs
-            validated_inputs = self._validate_inputs(a=a, b=b, **kwargs)
-            
-            # Execute the specific mathematical operation
-            result = self._execute_logic(**validated_inputs)
-            
-            self.logger.info(f"Tool {self.tool_name} executed successfully with result: {result}")
-            return result
-            
-        except Exception as e:
-            self.logger.error(f"Error executing tool {self.tool_name}: {str(e)}")
-            raise ToolError(f"Tool execution failed: {str(e)}", self.tool_name)
-    
-    async def arun(self, a: int, b: int, **kwargs) -> Any:
-        """Async version of run method."""
-        return self.run(a, b, **kwargs)
 
 #implement Order tool class - this is a base class to validate existing order inputs
 #use it for get_order, update_order, cancel_order, schedule_order_delivery, etc.

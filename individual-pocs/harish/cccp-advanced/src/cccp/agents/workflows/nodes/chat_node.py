@@ -14,14 +14,8 @@ def chat_node(state: AgentState) -> AgentState:
         model_service = ModelService()
         model = model_service.get_model()
 
-        # Bind tools to the model for automatic tool calling
-        from cccp.tools import get_all_tools
-        tools = get_all_tools()
-        model_with_tools = model.bind_tools(tools)
-        logger.info(f"Tools bound to model: {[getattr(tool, 'name', getattr(tool, 'tool_name', str(tool))) for tool in tools]}")
-
-        # Generate response using model with tools
-        response = model_with_tools.generate(state["user_input"])
+        # Generate response using  model
+        response = model.generate(state["user_input"])
 
         # Update state with response
         state["response"] = response

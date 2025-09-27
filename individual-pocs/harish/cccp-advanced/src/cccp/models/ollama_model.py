@@ -265,7 +265,8 @@ def get_ollama_model_instance() -> OllamaModel:
                 repetition_penalty=settings.model_repetition_penalty
             ),
             **{
-                "ollama_base_url": settings.ollama_base_url
+                "ollama_base_url": settings.ollama_base_url,
+                **{}
             }
         )
         _ollama_model_instance.load()

@@ -3,11 +3,13 @@ from langgraph.graph import StateGraph
 from cccp.agents.state import AgentState
 from cccp.agents.workflows.nodes.chat_node import chat_node
 from cccp.agents.workflows.nodes.response_node import response_node
+from cccp.agents.workflows.nodes.tool_node import tool_node
 
 def create_chat_agent():
     workflow = StateGraph(AgentState)
     
     # Add nodes
+    workflow.add_node("tool", tool_node)
     workflow.add_node("chat", chat_node)
     workflow.add_node("response", response_node)
     
