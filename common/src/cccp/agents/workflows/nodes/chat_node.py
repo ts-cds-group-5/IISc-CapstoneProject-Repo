@@ -3,6 +3,7 @@
 from cccp.services.model_service import ModelService
 from cccp.agents.state import AgentState
 from cccp.core.logging import get_logger
+from cccp.tools import get_all_tools
 
 logger = get_logger(__name__)
 
@@ -13,9 +14,14 @@ def chat_node(state: AgentState) -> AgentState:
         logger.info(f"Processing user input: {state['user_input']}")
         model_service = ModelService()
         model = model_service.get_model()
+        tools = get_all_tools()
 
-        # Generate response using  model
-        response = model.generate(state["user_input"])
+        model_with_tools = model.bind_tools(tools)
+        logger.info(f"Tools bound to model: {[tool.name for tool in tools]}")
+
+        # Generate response using  model with tools
+        response = model_with_tools.invoke(state["user_input"])
+#        response = model.generate(state["user_input"])
 
         # Update state with response
         state["response"] = response

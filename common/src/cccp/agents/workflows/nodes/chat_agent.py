@@ -14,7 +14,14 @@ def create_chat_agent():
     workflow.add_node("response", response_node)
     
     # Define flow
-    workflow.set_entry_point("chat")
+    workflow.set_entry_point("tool")
+    
+    # add conditional edges for tool node to call chat node if state is none
+    workflow.add_conditional_edges(
+        "tool",
+        lambda state: "chat" if state.get("response") is None else "response",
+        ["chat", "response"]
+    )
     workflow.add_edge("chat", "response")
     
     return workflow.compile()
