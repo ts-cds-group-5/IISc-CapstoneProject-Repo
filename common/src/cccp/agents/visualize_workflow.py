@@ -91,7 +91,7 @@ graph TD
 ## Current Flow
 - **Entry Point**: `chat` node
 - **Flow**: `chat` → `response`
-- **State**: `AgentState` (messages, user_input, response, tools_used, error)
+- **State**: `AgentState` (user_input, response, tools_used, tool_results, error, status)
 """
 
 def save_visualization_files(agent):
@@ -122,11 +122,13 @@ def save_visualization_files(agent):
         f.write(f"Edges: {list(graph.edges)}\n")
         f.write(f"Graph Type: {type(graph).__name__}\n\n")
         f.write("State Schema:\n")
-        f.write("- messages: List[BaseMessage]\n")
         f.write("- user_input: str\n")
         f.write("- response: str\n")
+        f.write("- tools: List[str]\n")
         f.write("- tools_used: List[str]\n")
+        f.write("- tool_results: List[str]\n")
         f.write("- error: Optional[str]\n")
+        f.write("- status: Optional[str]\n")
 
 def generate_detailed_workflow():
     """Generate a more detailed workflow including tool usage."""

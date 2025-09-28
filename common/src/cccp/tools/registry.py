@@ -51,7 +51,14 @@ class ToolRegistry:
             raise ValueError(f"Tool '{tool_name}' not registered")
         
         if tool_name not in self._instances:
-            self._instances[tool_name] = self._tools[tool_name]()
+            try:
+                # Create tool instance with proper initialization
+                tool_class = self._tools[tool_name]
+                self._instances[tool_name] = tool_class()
+                logger.info(f"Created tool instance: {tool_name}")
+            except Exception as e:
+                logger.error(f"Failed to create tool instance {tool_name}: {e}")
+                raise ValueError(f"Failed to create tool instance {tool_name}: {e}")
         
         return self._instances[tool_name]
         

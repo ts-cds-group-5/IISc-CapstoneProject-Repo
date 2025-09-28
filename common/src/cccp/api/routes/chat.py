@@ -46,8 +46,7 @@ async def generate_response(request: ChatRequest) -> ChatResponse:
         # Create and invoke the agent
         agent = create_chat_agent()
         result = agent.invoke({
-                "user_input": request.prompt, 
-                "messages": []
+                "user_input": request.prompt
             })
         response_text = result["response"]            
         

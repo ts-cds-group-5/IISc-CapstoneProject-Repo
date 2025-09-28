@@ -10,6 +10,8 @@ from cccp.models.base import BaseModel, ModelConfig
 from cccp.tools import get_all_tools
 #import BaseMessage from langchain_core.messages.base
 from langchain_core.messages.base import BaseMessage
+from langchain_core.messages import AIMessage
+from langchain_core.outputs import Generation
 
 logger = get_logger(__name__)
 
@@ -72,6 +74,17 @@ class Phi2Model(BaseModel):
             raise ModelError("Model not loaded. Call load() first.")
         
         try:
+            # Safety check: if prompt is actually a messages array, convert it
+            if isinstance(prompt, list) and len(prompt) > 0:
+                # Handle nested list case: [[SystemMessage, HumanMessage]]
+                if isinstance(prompt[0], list) and len(prompt[0]) > 0 and hasattr(prompt[0][0], 'content'):
+                    self.logger.warning("Nested messages array passed to generate() instead of _generate() - converting to prompt")
+                    prompt = self._messages_to_prompt(prompt[0])
+                # Handle flat list case: [SystemMessage, HumanMessage]
+                elif hasattr(prompt[0], 'content'):
+                    self.logger.warning("Messages array passed to generate() instead of _generate() - converting to prompt")
+                    prompt = self._messages_to_prompt(prompt)
+            
             self.logger.info(f"Generating text for prompt: {prompt}")
             
             # Merge config with kwargs
@@ -116,18 +129,52 @@ Output:###Response:
         **kwargs: Any,
     ) -> Any:
         """Generate a response from messages."""
-        # Convert messages to prompt and use your existing generate method
-        prompt = self._messages_to_prompt(messages)
-        return self.generate(prompt, **kwargs)
+        try:
+            # Convert messages to a well-formatted prompt
+            prompt = self._messages_to_prompt(messages)
+            self.logger.debug(f"Generated prompt: {prompt[:200]}...")
+            
+            # Generate text using the existing generate method
+            generated_text = self.generate(prompt, **kwargs)
+            
+            # Return AIMessage directly
+            return AIMessage(content=generated_text)
+            
+        except Exception as e:
+            self.logger.error(f"Error in _generate: {str(e)}")
+            # Return error as string
+            return f"Error generating response: {str(e)}"
 
     def _llm_type(self) -> str:
         """Return type of language model."""
-        return "phi2" 
+        return "phi2"
+    
+    def _stream(self, messages, stop=None, run_manager=None, **kwargs):
+        """Stream method required by LangChain."""
+        # For now, just yield the single response
+        response = self._generate(messages, stop, run_manager, **kwargs)
+        yield response
+    
+    
 
     def _messages_to_prompt(self, messages: List[BaseMessage]) -> str:
-        """Convert messages to a single prompt string."""
-        # Implement message to prompt conversion
-        return "\n".join([msg.content for msg in messages])
+        """Convert messages to a well-formatted prompt string."""
+        prompt_parts = []
+        
+        for message in messages:
+            if hasattr(message, 'type'):
+                if message.type == 'system':
+                    prompt_parts.append(f"System: {message.content}")
+                elif message.type == 'human':
+                    prompt_parts.append(f"Human: {message.content}")
+                elif message.type == 'ai':
+                    prompt_parts.append(f"Assistant: {message.content}")
+                else:
+                    prompt_parts.append(f"{message.type.title()}: {message.content}")
+            else:
+                prompt_parts.append(str(message.content))
+        
+        return "\n\n".join(prompt_parts)
 
 
 # Convenience functions for backward compatibility

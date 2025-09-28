@@ -85,7 +85,6 @@ class BaseModel(LoggerMixin, BaseChatModel):
     messages: List[BaseMessage], 
     stop: Optional[List[str]]=None,
     run_manager: Optional[Any]=None,
-    return_generation_info: bool=False,
     **kwargs: Any) -> Any:
         """Generate text from a prompt."""
         pass

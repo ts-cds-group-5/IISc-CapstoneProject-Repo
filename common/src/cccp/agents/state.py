@@ -6,10 +6,12 @@ from langchain_core.messages import BaseMessage
 
 class AgentState(TypedDict):
     """State for the agent."""
-    messages: List[BaseMessage]
     user_input: str
     response: str
     tools: List[str]
     tools_used: List[str]
     tool_results: List[str]
     error: Optional[str]
+    status: Optional[str]
+    # Note: messages field removed to avoid JSON serialization issues
+    # Messages are handled internally by the chat node and not stored in state
