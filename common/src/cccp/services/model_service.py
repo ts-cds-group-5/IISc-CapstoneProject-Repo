@@ -3,7 +3,7 @@
 from typing import Dict, Any, Optional, Union
 from cccp.core.logging import LoggerMixin
 from cccp.core.exceptions import ModelError
-from cccp.models.phi2_model import Phi2Model, get_model_instance
+from cccp.models.phi2_model import Phi2Model, get_model_instance, reset_model_instance
 from cccp.models.ollama_model import OllamaModel, get_ollama_model_instance, is_ollama_running
 from cccp.core.config import get_settings
 
@@ -11,7 +11,7 @@ from cccp.core.config import get_settings
 class ModelService(LoggerMixin):
     """Service for managing models."""
     
-    def __init__(self, model_type: str = "auto"):  # Change to "auto" to enable auto-detection
+    def __init__(self, model_type: str = "phi2"):  # Force Phi-2 for testing
         self.model: Optional[Union[Phi2Model, OllamaModel]] = None
         self.model_type = model_type
         self.settings = get_settings()
@@ -66,6 +66,10 @@ class ModelService(LoggerMixin):
             self.logger.info("Reloading model")
             if self.model:
                 self.model.unload()
+            
+            # Reset singleton instances
+            if self.model_type == "phi2":
+                reset_model_instance()
             
             # Reinitialize with the same model type
             self._initialize_model()

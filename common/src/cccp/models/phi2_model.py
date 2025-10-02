@@ -218,16 +218,17 @@ def get_text_generator(model: Any, tokenizer: Any) -> Any:
     logger.warning("get_text_generator is deprecated. Use Phi2Model class instead.")
     
     try:
+        settings = get_settings()
         return pipeline(
             "text-generation",
             model=model,
             tokenizer=tokenizer,
             pad_token_id=tokenizer.eos_token_id,
             device_map="cpu",
-            max_length=256,
+            max_length=settings.model_max_length,
             truncation=True,
-            temperature=0.2,
-            repetition_penalty=1.2,
+            temperature=settings.model_temperature,
+            repetition_penalty=settings.model_repetition_penalty,
             do_sample=True
         )
     except Exception as e:
@@ -259,3 +260,13 @@ def get_model_instance() -> Phi2Model:
         _model_instance.load()
     
     return _model_instance
+
+
+def reset_model_instance() -> None:
+    """Reset the global model instance (useful for testing or config changes)."""
+    global _model_instance
+    
+    if _model_instance is not None:
+        _model_instance.unload()
+        _model_instance = None
+        logger.info("Model instance reset")
