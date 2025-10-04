@@ -79,7 +79,7 @@ retrieval = RunnableParallel(
 
 
 # LLM setup (replace with your Hugging Face API key)
-hfapi_key = "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"
+
 chat_llm = HuggingFaceEndpoint(
     repo_id="HuggingFaceH4/zephyr-7b-beta",
     task="text-generation",
@@ -87,7 +87,6 @@ chat_llm = HuggingFaceEndpoint(
     top_k=30,
     temperature=0.1,
     repetition_penalty=1.03,
-    huggingfacehub_api_token=hfapi_key,
 )
 llm = ChatHuggingFace(llm=chat_llm)
 
