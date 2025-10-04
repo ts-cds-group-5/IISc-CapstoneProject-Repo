@@ -20,7 +20,7 @@ class ModelService(LoggerMixin):
     def _initialize_model(self) -> None:
         """Initialize the model."""
         try:
-            self.logger.info("Initializing model service")
+            self.logger.info(f"Initializing model service with type: {self.model_type}")
             
             # Determine which model to use
             # if self.model_type == "auto":
