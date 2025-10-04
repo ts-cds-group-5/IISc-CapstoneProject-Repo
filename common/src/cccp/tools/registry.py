@@ -6,6 +6,7 @@ from typing import Dict, List, Type, Any
 from cccp.tools.base import BaseCCCPTool
 from cccp.tools.math.add import AddTool
 from cccp.tools.math.multiply import MultiplyTool
+# from cccp.tools.order.get_order import GetOrderTool  # Temporarily disabled
 from cccp.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -41,7 +42,14 @@ class ToolRegistry:
 
     def register_tool(self, tool_class: Type[BaseCCCPTool]):
         """Register a new tool class."""
-        tool_name = tool_class.__name__.lower()
+        # Create a temporary instance to get the proper tool name
+        # tool name is tool_name instead of name (addtool instead of add)
+            # temp_instance = tool_class()
+            # tool_name = temp_instance.name
+            # self._tools[tool_name] = tool_class
+            # logger.info(f"Registered tool: {tool_name}")
+        temp_instance = tool_class()
+        tool_name = temp_instance.tool_name  # Use tool_name instead of name
         self._tools[tool_name] = tool_class
         logger.info(f"Registered tool: {tool_name}")
         
@@ -51,7 +59,14 @@ class ToolRegistry:
             raise ValueError(f"Tool '{tool_name}' not registered")
         
         if tool_name not in self._instances:
-            self._instances[tool_name] = self._tools[tool_name]()
+            try:
+                # Create tool instance with proper initialization
+                tool_class = self._tools[tool_name]
+                self._instances[tool_name] = tool_class()
+                logger.info(f"Created tool instance: {tool_name}")
+            except Exception as e:
+                logger.error(f"Failed to create tool instance {tool_name}: {e}")
+                raise ValueError(f"Failed to create tool instance {tool_name}: {e}")
         
         return self._instances[tool_name]
         

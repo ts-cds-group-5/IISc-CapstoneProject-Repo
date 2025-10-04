@@ -17,53 +17,10 @@ from cccp.api.models.responses import ChatResponse, ErrorResponse
 from cccp.services.chat_service import ChatService
 
 #adding for Langgraph agentic application
-from cccp.agents.workflows.chat_agent import create_chat_agent
+from cccp.agents.workflows.nodes.chat_agent import create_chat_agent
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/chat", tags=["chat"])
-
-#delete all the tools here. Use tools.py tools
-# Tool definitions (moved from original server_api.py)
-# @tool
-# def multiply(a: int, b: int) -> int:
-#     """Multiplies two numbers and returns the result."""
-#     logger.debug(f"Inside multiply tool with a: {a}, b: {b} and types {type(a)}, {type(b)}")
-#     try:
-#         logger.info(f"Multiplying {a} and {b}")
-#         result = a * b  # Fixed: was a / b in original
-#     except Exception as e:
-#         logger.error(f"Error multiplying numbers: {e}")
-#         raise ToolError(f"Error multiplying numbers: {e}", "multiply")
-#     logger.info(f"Result of multiplying {a} and {b} is {result}")
-#     return result
-
-# @tool
-# def add(a: int, b: int) -> int:
-#     """Adds two numbers and returns the result."""
-#     logger.debug(f"Inside add tool with a: {a}, b: {b} and types {type(a)}, {type(b)}")
-#     try:
-#         logger.info(f"Adding {a} and {b}")
-#         result = a*a + b*b
-#         logger.info(f"Result of adding {a} and {b} is {result} - me a (sq)uadder")
-
-#     except Exception as e:
-#         logger.error(f"Error adding numbers: {e}")
-#         raise ToolError(f"Error adding numbers: {e}", "add")
-#     return result
-
-# @tool
-# def subtract(a: int, b: int) -> int:
-#     """Subtracts two numbers and returns the result."""
-#     logger.debug(f"Inside subtract tool with a: {a}, b: {b} and types {type(a)}, {type(b)}")
-#     try:
-#         logger.info(f"Subtracting {a} and {b}")
-#         result = a - b
-#         logger.info(f"Result of subtracting {a} and {b} is {result}")
-
-#     except Exception as e:
-#         logger.error(f"Error subtracting numbers: {e}")
-#         raise ToolError(f"Error subtracting numbers: {e}", "subtract")
-#     return result
 
 def create_task_template(instruction: str) -> str:
     """Create a structured task template."""
@@ -77,40 +34,6 @@ Output:###Response:
 """
     return task_template.format(instruction=instruction)
 
-#@todo: remove this function and use tools instead
-#def detect_math_operation(prompt: str) -> Dict[str, Any]:
-    # """Detect if the prompt contains a math operation."""
-    # multiply_pattern = re.compile(
-    #     r"multiply\s+(\d+)\s*(?:and|by|with)?\s*(\d+)", re.IGNORECASE
-    # )
-    # add_pattern = re.compile(
-    #     r"add\s+(\d+)\s*(?:and|by|with)?\s*(\d+)", re.IGNORECASE
-    # )
-    # subtract_pattern = re.compile(
-    #     r"subtract\s+(\d+)\s*(?:and|by|with)?\s*(\d+)", re.IGNORECASE
-    # )
-
-    # match = multiply_pattern.search(prompt)
-    # if match:
-    #     a, b = int(match.group(1)), int(match.group(2))
-    #     logger.debug(f"Detected multiply operation: {a} * {b}")
-    #     return {"operation": "multiply", "a": a, "b": b}
-
-    # match = add_pattern.search(prompt)
-    # if match:
-    #     a, b = int(match.group(1)), int(match.group(2))
-    #     logger.debug(f"Detected add operation: {a} + {b}")
-    #     return {"operation": "add", "a": a, "b": b}
-
-    # match = subtract_pattern.search(prompt)
-    # if match:
-    #     a, b = int(match.group(1)), int(match.group(2))
-    #     logger.debug(f"Detected subtract operation: {a} - {b}")
-    #     return {"operation": "subtract", "a": a, "b": b}    
-#    return {"operation": None}
-#@todo: remove this function and use tools instead
-
-
 @router.post("/generate", response_model=ChatResponse)
 async def generate_response(request: ChatRequest) -> ChatResponse:
     """Generate a response using the model."""
@@ -123,8 +46,7 @@ async def generate_response(request: ChatRequest) -> ChatResponse:
         # Create and invoke the agent
         agent = create_chat_agent()
         result = agent.invoke({
-                "user_input": request.prompt, 
-                "messages": []
+                "user_input": request.prompt
             })
         response_text = result["response"]            
         

@@ -9,8 +9,11 @@ from cccp.core.exceptions import ModelError
 from cccp.core.config import get_settings
 from cccp.models.base import BaseModel, ModelConfig
 from cccp.tools import get_all_tools
+from pydantic import Field
 #import BaseMessage from langchain_core.messages.base
 from langchain_core.messages.base import BaseMessage
+from langchain_core.messages import AIMessage
+from langchain_core.outputs import Generation
 
 
 logger = get_logger(__name__)
@@ -18,6 +21,9 @@ logger = get_logger(__name__)
 
 class OllamaModel(BaseModel):
     """Ollama model implementation for local LLM inference."""
+    
+    # Declare Ollama-specific Pydantic fields
+    ollama_base_url: str = Field(default="http://localhost:11434", description="Ollama base URL")
     
     def __init__(
         self, 
@@ -27,8 +33,9 @@ class OllamaModel(BaseModel):
         ollama_base_url: str = "http://localhost:11434",
         **kwargs
     ):
-    #add model_name and device to __init__ by passing them to super().__init__ through kwargs
-        super().__init__(model_name, device, **kwargs)
+    #add model_name and device to __init__ by passing them to super().__init__ 
+    # through kwargs
+        super().__init__(model_name=model_name, device=device, config=config, **kwargs)
         self.config = config or ModelConfig()
         self.ollama_base_url = ollama_base_url
         self._model_loaded = False
@@ -69,10 +76,22 @@ class OllamaModel(BaseModel):
 
     def generate(self, prompt: str, **kwargs) -> str:
         """Generate text from a prompt using Ollama."""
+        self.logger.info("generate method called - this should NOT happen for chat!")
         if not self.is_loaded:
             raise ModelError("Model not loaded. Call load() first.")
         
         try:
+            # Safety check: if prompt is actually a messages array, convert it
+            if isinstance(prompt, list) and len(prompt) > 0:
+                # Handle nested list case: [[SystemMessage, HumanMessage]]
+                if isinstance(prompt[0], list) and len(prompt[0]) > 0 and hasattr(prompt[0][0], 'content'):
+                    self.logger.warning("Nested messages array passed to generate() instead of _generate() - converting to prompt")
+                    prompt = self._messages_to_prompt(prompt[0])
+                # Handle flat list case: [SystemMessage, HumanMessage]
+                elif hasattr(prompt[0], 'content'):
+                    self.logger.warning("Messages array passed to generate() instead of _generate() - converting to prompt")
+                    prompt = self._messages_to_prompt(prompt)
+            
             self.logger.info(f"Generating text for prompt: {prompt[:100]}...")
             
             # Prepare generation parameters
@@ -226,24 +245,53 @@ Your role is to arrange the given task in this structure.
         self.logger.info("Ollama model unloaded from memory")
     
     def _generate(
-    self,
-    messages: List[BaseMessage],
-    stop: Optional[List[str]] = None,
-    run_manager: Optional[Any] = None,
-    **kwargs: Any) -> Any:
+        self,
+        messages: List[BaseMessage],
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[Any] = None,
+        **kwargs: Any
+    ) -> Any:
         """Generate a response from messages."""
-        # Convert messages to prompt and use your existing generate method
-        prompt = self._messages_to_prompt(messages)
-        return self.generate(prompt, **kwargs)
+        self.logger.info("_generate method called - this is correct!")
+        try:
+            # Convert messages to prompt and use your existing generate method
+            prompt = self._messages_to_prompt(messages)
+            self.logger.debug(f"Generated prompt: {prompt[:200]}...")
+            
+            generated_text = self.generate(prompt, **kwargs)
+            
+            # Return AIMessage directly
+            return AIMessage(content=generated_text)
+            
+        except Exception as e:
+            self.logger.error(f"Error in _generate: {str(e)}")
+            # Return error as string
+            return f"Error generating response: {str(e)}"
 
     def _llm_type(self) -> str:
         """Return type of language model."""
         return "ollama" #OllamaModel
+    
+    def _stream(self, messages, stop=None, run_manager=None, **kwargs):
+        """Stream method required by LangChain."""
+        # For now, just yield the single response
+        response = self._generate(messages, stop, run_manager, **kwargs)
+        yield response
+    
+    
 
     def _messages_to_prompt(self, messages: List[BaseMessage]) -> str:
         """Convert messages to a single prompt string."""
-        # Implement message to prompt conversion
-        return "\n".join([msg.content for msg in messages])
+        prompt_parts = []
+        for msg in messages:
+            if hasattr(msg, 'content') and msg.content:
+                # Add message type prefix for better context
+                if hasattr(msg, '__class__'):
+                    msg_type = msg.__class__.__name__.replace('Message', '').upper()
+                    prompt_parts.append(f"{msg_type}: {msg.content}")
+                else:
+                    prompt_parts.append(msg.content)
+        return "\n".join(prompt_parts)
 
 
 # Global model instance (singleton pattern)
@@ -263,11 +311,8 @@ def get_ollama_model_instance() -> OllamaModel:
                 max_length=settings.model_max_length,
                 temperature=settings.model_temperature,
                 repetition_penalty=settings.model_repetition_penalty
-            ),
-            **{
-                "ollama_base_url": settings.ollama_base_url,
-                **{}
-            }
+            ), 
+            ollama_base_url = settings.ollama_base_url
         )
         _ollama_model_instance.load()
     

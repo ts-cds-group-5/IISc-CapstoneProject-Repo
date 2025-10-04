@@ -15,8 +15,8 @@ def tool_node(state: AgentState) -> AgentState:
         
         # Detect math operations
         math_patterns = {
-            'add': r'add\s+(\d+)\s*(?:and|by|with)?\s*(\d+)',
-            'multiply': r'multiply\s+(\d+)\s*(?:and|by|with)?\s*(\d+)',
+            'addtool': r'add\s+(\d+)\s*(?:and|by|with)?\s*(\d+)',
+            'multiplytool': r'multiply\s+(\d+)\s*(?:and|by|with)?\s*(\d+)',
             'subtract': r'subtract\s+(\d+)\s*(?:and|by|with)?\s*(\d+)'
         }
         
@@ -30,7 +30,9 @@ def tool_node(state: AgentState) -> AgentState:
                 tool = get_tool(operation)
                 result = tool.run(a=a, b=b)
                 
-                state["response"] = f"The result of {operation}ing {a} and {b} is {result}"
+                # Clean up operation name for display
+                display_operation = operation.replace('tool', '')
+                state["response"] = f"The result of {display_operation}ing {a} and {b} is {result}"
                 state["tools_used"] = [operation]
                 state["tool_results"] = [str(result)]
                 

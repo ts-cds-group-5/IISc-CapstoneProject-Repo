@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     model_type: str = Field(default="auto", env="MODEL_TYPE")  # Uncomment to enable auto-detection
     
     model_device: str = Field(default="cpu", env="MODEL_DEVICE")
-    model_max_length: int = Field(default=256, env="MODEL_MAX_LENGTH")
+    model_max_length: int = Field(default=512, env="MODEL_MAX_LENGTH")
     model_temperature: float = Field(default=0.2, env="MODEL_TEMPERATURE")
     model_repetition_penalty: float = Field(default=1.2, env="MODEL_REPETITION_PENALTY")
     
