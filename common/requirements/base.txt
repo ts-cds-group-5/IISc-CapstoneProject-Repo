@@ -4,6 +4,9 @@ uvicorn[standard]>=0.24.0
 streamlit>=1.28.0
 requests>=2.31.0
 pydantic>=2.4.0
+postgresql-mcp-server3>=1.0.7
+asyncpg>=0.29.0
+
 
 # ML and AI
 torch>=2.0.0

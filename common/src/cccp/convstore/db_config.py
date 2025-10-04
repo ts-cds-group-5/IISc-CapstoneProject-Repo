@@ -1,5 +1,5 @@
 db_config = {
-    'dbname': 'postgresql',
+    'dbname': 'postgres',
     'user': 'postgres',
     'password': 'postgres',
     'host': 'localhost',
@@ -13,8 +13,8 @@ db_config_test = {
     'port': 5432
 }
 db_config_docker = {
-    'dbname': 'postgresql',
-    'user': 'postgres'
+    'dbname': 'postgres',
+    'user': 'postgres',
     'password': 'postgres',
     'host': 'db',
     'port': 5432

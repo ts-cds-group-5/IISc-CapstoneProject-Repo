@@ -17,6 +17,7 @@ class CustomToolCallingAgent:
     def __init__(self):
         self.model_service = None
         self.available_tools = {}
+        self.user_session = None  # Store user information
         self._initialize_agent()
         logger.info("CustomToolCallingAgent initialized")
     
@@ -38,6 +39,14 @@ class CustomToolCallingAgent:
         """Process user input and return structured response."""
         try:
             logger.info(f"Processing user input: {user_input}")
+            
+            # Check if user needs to register first
+            if not self.user_session:
+                registration_info = self._detect_user_registration(user_input)
+                if registration_info:
+                    return self._handle_user_registration(registration_info)
+                else:
+                    return self._request_user_registration()
             
             # First, try to detect if this is a tool usage request
             tool_detection = self._detect_tool_usage(user_input)
@@ -79,8 +88,8 @@ class CustomToolCallingAgent:
         
         # Check for other tool keywords
         tool_keywords = {
-            'order': ['order', 'purchase', 'buy'],
-            'get_order': ['my order', 'order status', 'order details']
+            'place_order': ['place order', 'purchase', 'buy'],
+            'getorder': ['cart','my cart','my cart status', 'cart status', 'order', 'my order', 'my order status','my shipment','shipment details', 'my shipment details','shipping details', 'tracking details','delivery details','invoice details','ETA','delayed','early','on time','late']
         }
         
         for tool_name, keywords in tool_keywords.items():
@@ -94,14 +103,172 @@ class CustomToolCallingAgent:
         
         return None
     
+    def _detect_user_registration(self, user_input: str) -> Optional[Dict[str, Any]]:
+        """Detect if user is providing registration information."""
+        user_input_lower = user_input.lower()
+        
+        # Look for patterns that indicate user registration
+        # Examples: "My user ID is 123", "I'm John Smith", "My mobile is 1234567890"
+        
+        registration_info = {}
+        
+        # Extract user ID
+        user_id_patterns = [
+            r'\b(?:user\s*id|userid|id)\s*[:\s]*([A-Za-z0-9]{3,20})\b',
+            r'\bmy\s+(?:user\s*id|userid|id)\s+is\s+([A-Za-z0-9]{3,20})\b'
+        ]
+        
+        for pattern in user_id_patterns:
+            match = re.search(pattern, user_input_lower)
+            if match:
+                registration_info['user_id'] = match.group(1)
+                break
+        
+        # Extract name
+        name_patterns = [
+            r'\b(?:i\s*am|my\s*name\s*is|name)\s+([A-Za-z\s]{2,30})\b',
+            r'\b([A-Z][a-z]+\s+[A-Z][a-z]+)\b'  # First Last format
+        ]
+        
+        for pattern in name_patterns:
+            match = re.search(pattern, user_input)
+            if match:
+                registration_info['name'] = match.group(1).strip()
+                break
+        
+        # Extract mobile number
+        mobile_patterns = [
+            r'\b(?:mobile|phone|number)\s*[:\s]*(\d{10,15})\b',
+            r'\bmy\s+(?:mobile|phone|number)\s+is\s+(\d{10,15})\b',
+            r'\b(\d{10,15})\b'  # Just numbers
+        ]
+        
+        for pattern in mobile_patterns:
+            match = re.search(pattern, user_input_lower)
+            if match:
+                registration_info['mobile'] = match.group(1)
+                break
+        
+        # Return registration info if we found at least user_id
+        if registration_info.get('user_id'):
+            logger.info(f"Detected registration info: {registration_info}")
+            return registration_info
+        
+        return None
+    
+    def _handle_user_registration(self, registration_info: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle user registration process."""
+        try:
+            # Validate required fields
+            user_id = registration_info.get('user_id')
+            name = registration_info.get('name', 'User')
+            mobile = registration_info.get('mobile', 'Not provided')
+            
+            if not user_id:
+                return {
+                    "intent": "registration_error",
+                    "response": "I need your user ID to help you. Please provide your user ID, name, and mobile number.",
+                    "error": "Missing user_id"
+                }
+            
+            # Store user session
+            self.user_session = {
+                'user_id': user_id,
+                'name': name,
+                'mobile': mobile,
+                'registered_at': self._get_current_timestamp()
+            }
+            
+            logger.info(f"User registered: {self.user_session}")
+            
+            # Generate personalized welcome message
+            welcome_message = f"""Hello {name}! 👋 
+
+I've registered you with:
+- User ID: {user_id}
+- Name: {name}
+- Mobile: {mobile}
+
+How can I help you today? You can ask me about:
+- Your orders: "What happened to my order 454?"
+- Order status: "Check my order status"
+- Shipping details: "When will my order be delivered?"
+
+What would you like to know?"""
+            
+            return {
+                "intent": "registration_success",
+                "response": welcome_message,
+                "user_session": self.user_session
+            }
+            
+        except Exception as e:
+            logger.error(f"Error handling user registration: {str(e)}")
+            return {
+                "intent": "registration_error",
+                "response": f"Sorry, there was an error registering you: {str(e)}",
+                "error": str(e)
+            }
+    
+    def _request_user_registration(self) -> Dict[str, Any]:
+        """Request user registration information."""
+        registration_message = """Welcome! 👋 I'm your customer service assistant.
+
+To help you with your orders, I need some information from you. Please provide:
+
+1. **Your User ID** (e.g., "My user ID is 12345")
+2. **Your Name** (e.g., "I'm John Smith") 
+3. **Your Mobile Number** (e.g., "My mobile is 9876543210")
+
+You can provide all this information in one message, like:
+"My user ID is 12345, I'm John Smith, and my mobile is 9876543210"
+
+Once you're registered, I can help you check your orders, track shipments, and more!"""
+        
+        return {
+            "intent": "registration_request",
+            "response": registration_message
+        }
+    
+    def _get_current_timestamp(self) -> str:
+        """Get current timestamp."""
+        from datetime import datetime
+        return datetime.now().isoformat()
+    
     def _extract_parameters(self, user_input: str, tool_name: str) -> Dict[str, Any]:
         """Extract parameters for tool usage from user input."""
-        # Simple parameter extraction - can be enhanced
-        if tool_name == 'get_order':
-            # Look for order ID patterns
-            order_id_match = re.search(r'order[_\s]*id[:\s]*(\w+)', user_input.lower())
-            if order_id_match:
-                return {"order_id": order_id_match.group(1)}
+        if tool_name == 'getorder':
+            # Look for cart ID patterns
+            cart_id_patterns = [
+                r'\b(?:cart|Cart|CART)[\s#:]*([A-Za-z0-9]{1,15})\b',  # "cart 454", "Cart cart123"
+                r'\bmy\s+cart[\s#:]*([A-Za-z0-9]{1,15})\b',           # "my cart 454"
+                r'\bcart[_\s]*id[:\s]*([A-Za-z0-9]{1,15})\b',        # "cart id: 454", "cart_id: 123"
+                r'\b(?:order|Order|ORDER)[\s#:]*([A-Za-z0-9]{1,15})\b',  # "cart 454", "Cart cart123",
+                 r'\bmy\s+(?:order|Order|ORDER)[\s#:]*([A-Za-z0-9]{1,15})\b',                 
+            ]
+            
+            for pattern in cart_id_patterns:
+                cart_id_match = re.search(pattern, user_input, re.IGNORECASE)
+                if cart_id_match:
+                    cart_id = cart_id_match.group(1)
+                    logger.info(f"Extracted cart ID: {cart_id} using pattern: {pattern}")
+                    return {"cart_id": cart_id}
+            
+            # Look for email patterns
+            email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+            email_match = re.search(email_pattern, user_input)
+            if email_match:
+                customer_email = email_match.group(0)
+                logger.info(f"Extracted customer email: {customer_email}")
+                return {"customer_email": customer_email}
+            
+            # Look for name patterns (if user session has name, use it)
+            if self.user_session and self.user_session.get('name'):
+                customer_name = self.user_session['name']
+                logger.info(f"Using customer name from session: {customer_name}")
+                return {"customer_full_name": customer_name}
+            
+            logger.warning(f"Could not extract cart_id, email, or name from: {user_input}")
         
         return {}
     
@@ -147,6 +314,9 @@ class CustomToolCallingAgent:
     
     def _generate_tool_response(self, tool_name: str, parameters: Dict[str, Any], result: Any) -> str:
         """Generate a natural language response for tool execution."""
+        # Get user name for personalized responses
+        user_name = self.user_session.get('name', 'there') if self.user_session else 'there'
+        
         if tool_name == 'add':
             a, b = parameters.get('a', 0), parameters.get('b', 0)
             return f"The result of adding {a} and {b} is {result}"
@@ -154,8 +324,21 @@ class CustomToolCallingAgent:
             a, b = parameters.get('a', 0), parameters.get('b', 0)
             return f"The result of multiplying {a} and {b} is {result}"
         elif tool_name == 'get_order':
-            order_id = parameters.get('order_id', 'unknown')
-            return f"Order {order_id} details: {result}"
+            cart_id = parameters.get('cart_id', '')
+            customer_email = parameters.get('customer_email', '')
+            customer_name = parameters.get('customer_full_name', '')
+            
+            # Determine what was searched for
+            if cart_id:
+                search_term = f"cart {cart_id}"
+            elif customer_email:
+                search_term = f"cart for {customer_email}"
+            elif customer_name:
+                search_term = f"cart for {customer_name}"
+            else:
+                search_term = "your cart"
+            
+            return f"Let me find {search_term}, {user_name}...\n\n{result}"
         else:
             return f"Tool '{tool_name}' executed successfully. Result: {result}"
     

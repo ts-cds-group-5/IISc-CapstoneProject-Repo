@@ -36,7 +36,20 @@ services:
 
   # streamlit-customer-csm:
 
-  # fastapi-server:
+  # # fastapi-server:
+  # "mcpServers": {
+  #   "postgres": {
+  #     "command": "postgresql-mcp-server",
+  #     "args": [],
+  #     "env": {
+  #       "POSTGRES_HOST": "localhost",
+  #       "POSTGRES_PORT": "5432",
+  #       "POSTGRES_USER": "postgres",
+  #       "POSTGRES_PASSWORD": "postgres",
+  #       "POSTGRES_DB": "postgresql"
+  #     }
+  #   }
+  # }
 
 networks:
   myevershop:

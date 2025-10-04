@@ -6,7 +6,7 @@ from typing import Dict, List, Type, Any
 from cccp.tools.base import BaseCCCPTool
 from cccp.tools.math.add import AddTool
 from cccp.tools.math.multiply import MultiplyTool
-# from cccp.tools.order.get_order import GetOrderTool  # Temporarily disabled
+from cccp.tools.order.get_order import GetOrderTool  # Temporarily disabled
 from cccp.core.logging import get_logger
 
 logger = get_logger(__name__)
