@@ -6,11 +6,9 @@ including database client and configuration management.
 """
 
 from .client import MCPPostgresClient
-from .config import MCPConfig
 
 __all__ = [
     "MCPPostgresClient",
-    "MCPConfig",
 ]
 
 __version__ = "1.0.0"

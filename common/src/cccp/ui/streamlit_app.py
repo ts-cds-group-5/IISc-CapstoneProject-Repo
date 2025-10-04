@@ -122,7 +122,9 @@ class StreamlitApp:
                 with st.spinner("Thinking..."):
                     response = self._get_chat_response(prompt)
                     if response:
-                        st.markdown(response["response"])
+                        # Format response for better display with newlines
+                        formatted_response = response["response"].replace('\n', '\n\n')
+                        st.markdown(formatted_response)
                         st.session_state.messages.append({
                             "role": "assistant", 
                             "content": response["response"]

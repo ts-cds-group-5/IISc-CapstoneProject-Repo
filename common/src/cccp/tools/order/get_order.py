@@ -266,17 +266,26 @@ class GetOrderTool(BaseCCCPTool):
             cart_id = cart_details.get('cart_id', 'Unknown')
             status = cart_details.get('status', 'unknown')
             total = cart_details.get('total', 0.0)
+            email = cart_details.get('customer_email', 'N/A')
             
-            response = f"""Cart Details for {customer_name}:
-Cart ID: {cart_id}
-Status: {status.replace('_', ' ').title()}
-Total: ₹{total:.2f}
-Customer Email: {cart_details.get('customer_email', 'N/A')}"""
+            # Format status nicely
+            status_display = status.replace('_', ' ').title()
             
+            # Build response in the desired format
+            response_parts = [
+                f"Cart details for {customer_name}",
+                f"Cart ID {cart_id}, {status_display}",
+                f"Total: ₹{total:.2f}"
+            ]
+            
+            # Add shipping note if available
             if cart_details.get('shipping_note'):
-                response += f"\nShipping Note: {cart_details['shipping_note']}"
+                response_parts.append(f"Shipping Note: {cart_details['shipping_note']}")
             
-            return response
+            # Add email
+            response_parts.append(f"Email: {email}")
+            
+            return "\n".join(response_parts)
             
         except Exception as e:
             logger.error(f"Error formatting cart response: {str(e)}")

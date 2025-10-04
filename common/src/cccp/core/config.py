@@ -71,6 +71,8 @@ class Settings(BaseSettings):
     postgres_password: str = Field(default="postgres", env="POSTGRES_PASSWORD")
     postgres_db: str = Field(default="postgres", env="POSTGRES_DB")
     mcp_postgres_enabled: bool = Field(default=True, env="MCP_POSTGRES_ENABLED")
+    mcp_postgres_host: str = Field(default="localhost", env="MCP_POSTGRES_HOST")
+    mcp_postgres_port: int = Field(default=8001, env="MCP_POSTGRES_PORT")
     
     class Config:
         """Pydantic config."""

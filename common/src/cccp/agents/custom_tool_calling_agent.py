@@ -323,22 +323,9 @@ Once you're registered, I can help you check your orders, track shipments, and m
         elif tool_name == 'multiply':
             a, b = parameters.get('a', 0), parameters.get('b', 0)
             return f"The result of multiplying {a} and {b} is {result}"
-        elif tool_name == 'get_order':
-            cart_id = parameters.get('cart_id', '')
-            customer_email = parameters.get('customer_email', '')
-            customer_name = parameters.get('customer_full_name', '')
-            
-            # Determine what was searched for
-            if cart_id:
-                search_term = f"cart {cart_id}"
-            elif customer_email:
-                search_term = f"cart for {customer_email}"
-            elif customer_name:
-                search_term = f"cart for {customer_name}"
-            else:
-                search_term = "your cart"
-            
-            return f"Let me find {search_term}, {user_name}...\n\n{result}"
+        elif tool_name == 'getorder':
+            # For getorder tool, just return the result directly (it's already formatted)
+            return str(result)
         else:
             return f"Tool '{tool_name}' executed successfully. Result: {result}"
     
