@@ -1,0 +1,24 @@
+schema_conversation = {
+    "conv_id": str(uuid.uuid4()),
+    "user_id": "ashish",
+    "conversation_blob": [
+        {"sender": "user", "message": "Hello!", "timestamp": "2024-09-28T10:00:00"},
+        {"sender": "bot", "message": "Hi there!", "timestamp": "2024-09-28T10:00:01"}
+    ],
+    "conversation_model": "ollama",
+    "channel": "web",
+    "source": "custom",
+    "created_at": datetime.now().isoformat(),
+    "updated_at": "2024-09-27T10:05:00",
+    "last_message_at": "2024-09-27T10:05:00",
+    "status": "active",
+    "csr_handoff_needed": False,
+    "csr_assigned_to": None,
+    "topic_label": "greeting",
+    "intent_label": "BILLING",
+    "sentiment_label": "positive",
+    "summary": "User greeted the bot.",
+    "outcome": "greeted",
+    "user_feedback": "very helpful",
+    "language": "en_in"
+}
