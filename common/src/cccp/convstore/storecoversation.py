@@ -75,4 +75,4 @@ sample_json = {
     "language": "en_in"
 }
 
-store_conversation(sample_json, db_config)
+#store_conversation(sample_json, db_config)
