@@ -26,14 +26,14 @@ class StreamlitApp:
         """Create and configure the Streamlit app."""
         st.set_page_config(
             page_title="CCCP Advanced",
-            page_icon="🤖",
+            page_icon="💬",
             layout="wide",
             initial_sidebar_state="expanded"
         )
         
         # Title and header
-        st.title("🤖 Evershop Customer Support Chatbot")
-        st.subheader("Evershop Customer Support Chatbot - Chat with our AI agent")
+        st.title("Evershop Customer Support")
+        st.subheader("Evershop Customer Support - Chat with our agent")
         
         # Sidebar
         self._create_sidebar()
@@ -97,7 +97,7 @@ class StreamlitApp:
     def _create_chat_interface(self) -> None:
         """Create the main chat interface."""
         # Welcome message
-        st.write("Welcome to the Evershop customer support chatbot! You can chat with the bot below.")
+        st.write("Welcome to Evershop customer support! You can chat with our agent here.")
         
         # Initialize chat history
         if "messages" not in st.session_state:

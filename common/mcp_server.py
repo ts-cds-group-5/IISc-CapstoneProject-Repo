@@ -186,31 +186,56 @@ class MCPServer:
         await self.initialize_db()
         
         try:
+            # Read from stdin in a blocking way using a thread
+            import threading
+            import queue
+            
+            input_queue = queue.Queue()
+            
+            def read_stdin():
+                while True:
+                    try:
+                        line = sys.stdin.readline()
+                        if not line:
+                            break
+                        input_queue.put(line.strip())
+                    except:
+                        break
+            
+            # Start stdin reader thread
+            stdin_thread = threading.Thread(target=read_stdin, daemon=True)
+            stdin_thread.start()
+            
             while True:
-                line = await asyncio.get_event_loop().run_in_executor(None, sys.stdin.readline)
-                if not line:
-                    break
-                
-                line = line.strip()
-                if not line:
-                    continue
-                
                 try:
-                    request = json.loads(line)
-                    response = await self.handle_request(request)
-                    print(json.dumps(response))
-                    sys.stdout.flush()
-                except json.JSONDecodeError as e:
-                    error_response = {
-                        "jsonrpc": "2.0",
-                        "id": None,
-                        "error": {
-                            "code": -32700,
-                            "message": f"Parse error: {str(e)}"
+                    # Wait for input with timeout
+                    try:
+                        line = input_queue.get(timeout=1.0)
+                        if not line:
+                            continue
+                    except queue.Empty:
+                        continue
+                    
+                    try:
+                        request = json.loads(line)
+                        response = await self.handle_request(request)
+                        print(json.dumps(response))
+                        sys.stdout.flush()
+                    except json.JSONDecodeError as e:
+                        error_response = {
+                            "jsonrpc": "2.0",
+                            "id": None,
+                            "error": {
+                                "code": -32700,
+                                "message": f"Parse error: {str(e)}"
+                            }
                         }
-                    }
-                    print(json.dumps(error_response))
-                    sys.stdout.flush()
+                        print(json.dumps(error_response))
+                        sys.stdout.flush()
+                
+                except Exception as e:
+                    print(f"Error processing request: {e}", file=sys.stderr)
+                    continue
         
         except KeyboardInterrupt:
             pass
