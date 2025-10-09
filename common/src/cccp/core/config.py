@@ -73,6 +73,7 @@ class Settings(BaseSettings):
     mcp_postgres_enabled: bool = Field(default=True, env="MCP_POSTGRES_ENABLED")
     mcp_postgres_host: str = Field(default="localhost", env="MCP_POSTGRES_HOST")
     mcp_postgres_port: int = Field(default=8001, env="MCP_POSTGRES_PORT")
+    mcp_server_path: Optional[str] = Field(default=None, env="MCP_SERVER_PATH")  # Path to MCP server script
     
     class Config:
         """Pydantic config."""
@@ -102,3 +103,26 @@ def get_logs_dir() -> Path:
     logs_dir = get_project_root() / "logs"
     logs_dir.mkdir(exist_ok=True)
     return logs_dir
+
+
+def get_mcp_server_path() -> str:
+    """
+    Get the MCP server script path.
+    
+    Priority:
+    1. MCP_SERVER_PATH environment variable
+    2. mcp_server_path from settings
+    3. Default: {project_root}/mcp_server.py
+    
+    Returns:
+        Absolute path to MCP server script
+    """
+    settings = get_settings()
+    
+    # Check if explicitly set via env or config
+    if settings.mcp_server_path:
+        return settings.mcp_server_path
+    
+    # Default to project root
+    default_path = get_project_root() / "mcp_server.py"
+    return str(default_path)

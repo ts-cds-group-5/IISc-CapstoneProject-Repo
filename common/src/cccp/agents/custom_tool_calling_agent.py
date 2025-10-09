@@ -7,6 +7,7 @@ from cccp.services.model_service import ModelService
 from cccp.core.config import get_settings
 from cccp.tools import get_tool, get_all_tools
 from cccp.core.logging import get_logger
+from cccp.prompts import get_prompt
 
 logger = get_logger(__name__)
 
@@ -35,12 +36,105 @@ class CustomToolCallingAgent:
             logger.error(f"Failed to initialize CustomToolCallingAgent: {str(e)}")
             raise
     
-    def process_user_input(self, user_input: str) -> Dict[str, Any]:
-        """Process user input and return structured response."""
+    def _get_tools_info(self) -> str:
+        """
+        Get formatted information about available tools for LLM prompt.
+        
+        Returns:
+            Formatted string with tool names, descriptions, and parameters
+        """
+        tools_info = []
+        
+        for tool_name, tool_instance in self.available_tools.items():
+            tool_info = f"""Tool: {tool_name}
+Description: {tool_instance.description}
+Parameters: {self._get_tool_parameters(tool_instance)}"""
+            tools_info.append(tool_info.strip())
+        
+        return "\n\n".join(tools_info)
+    
+    def _get_tool_parameters(self, tool_instance) -> str:
+        """
+        Get parameter information for a specific tool.
+        
+        Args:
+            tool_instance: The tool instance to extract parameters from
+            
+        Returns:
+            Formatted string describing tool parameters
+        """
+        # Extract parameters from tool's run method signature
+        import inspect
+        sig = inspect.signature(tool_instance.run)
+        params = []
+        
+        for param_name, param in sig.parameters.items():
+            if param_name == 'self':
+                continue
+            
+            param_type = param.annotation if param.annotation != inspect.Parameter.empty else 'any'
+            param_default = f" (default: {param.default})" if param.default != inspect.Parameter.empty else " (required)"
+            params.append(f"{param_name}: {param_type}{param_default}")
+        
+        return ", ".join(params) if params else "No parameters"
+    
+    def _validate_and_clean_json(self, response: str) -> Dict[str, Any]:
+        """
+        Validate and clean JSON response from LLM (especially Llama 3.2).
+        
+        Args:
+            response: Raw response string from LLM
+            
+        Returns:
+            Parsed dictionary from JSON response
+            
+        Raises:
+            ValueError: If no valid JSON found in response
+        """
+        try:
+            # Remove common JSON artifacts
+            cleaned = response.strip()
+            cleaned = cleaned.replace('```json', '').replace('```', '').strip()
+            
+            # Try to find JSON object
+            start = cleaned.find('{')
+            end = cleaned.rfind('}') + 1
+            
+            if start != -1 and end != 0:
+                json_str = cleaned[start:end]
+                parsed = json.loads(json_str)
+                logger.debug(f"Successfully parsed JSON: {parsed}")
+                return parsed
+            else:
+                raise ValueError("No valid JSON found in response")
+                
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON validation failed: {str(e)}")
+            raise ValueError(f"Invalid JSON: {str(e)}")
+    
+    def process_user_input(self, user_input: str, user_info: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Process user input and return structured response.
+        
+        Args:
+            user_input: The user's input message
+            user_info: Optional dict with pre-registered user info (user_id, name, mobile, email)
+        """
         try:
             logger.info(f"Processing user input: {user_input}")
             
-            # Check if user needs to register first
+            # If user_info is provided from UI, use it to initialize session
+            if user_info and not self.user_session:
+                logger.info("Initializing user session from provided user_info")
+                self.user_session = {
+                    'user_id': user_info.get('user_id', 'unknown'),
+                    'name': user_info.get('name', 'User'),
+                    'mobile': user_info.get('mobile', 'Not provided'),
+                    'email': user_info.get('email', 'Not provided'),
+                    'registered_at': self._get_current_timestamp()
+                }
+                logger.info(f"User session initialized: {self.user_session}")
+            
+            # Check if user needs to register first (only if no user_info provided and no session)
             if not self.user_session:
                 registration_info = self._detect_user_registration(user_input)
                 if registration_info:
@@ -65,10 +159,74 @@ class CustomToolCallingAgent:
             }
     
     def _detect_tool_usage(self, user_input: str) -> Optional[Dict[str, Any]]:
-        """Detect if user input is requesting a tool usage."""
+        """
+        Detect if user input is requesting a tool usage using LLM-based detection.
+        
+        This method uses the centralized prompt system to leverage LLM for natural
+        language understanding. Falls back to regex patterns if LLM fails or has low confidence.
+        
+        Args:
+            user_input: The user's query string
+            
+        Returns:
+            Dictionary with tool_name, parameters, confidence, and reasoning if tool detected,
+            None otherwise
+        """
+        try:
+            # Get available tools information
+            tools_info = self._get_tools_info()
+            
+            # Get prompt from centralized prompt system (uses v2_llama_optimized by default)
+            prompt = get_prompt(
+                "tool_detection",
+                user_input=user_input,
+                tools_info=tools_info
+            )
+            
+            logger.debug(f"Generated tool detection prompt for input: {user_input}")
+            
+            # Get LLM response
+            model = self.model_service.get_model()
+            response = model.generate(prompt, temperature=0.1, max_tokens=200)
+            
+            logger.debug(f"LLM raw response: {response}")
+            
+            # Parse and validate JSON response
+            tool_detection = self._validate_and_clean_json(response)
+            
+            # Check if a tool was detected and confidence is sufficient
+            if tool_detection.get("tool_name") and tool_detection.get("confidence", 0) >= 0.7:
+                logger.info(f"✅ LLM detected tool: {tool_detection['tool_name']} (confidence: {tool_detection.get('confidence')})")
+                logger.info(f"Reasoning: {tool_detection.get('reasoning', 'N/A')}")
+                return tool_detection
+            else:
+                logger.info(f"LLM returned no tool or low confidence, using fallback")
+                return self._fallback_tool_detection(user_input)
+            
+        except Exception as e:
+            logger.warning(f"⚠️ LLM tool detection failed: {str(e)}, falling back to regex")
+            # Fallback to regex patterns for reliability
+            return self._fallback_tool_detection(user_input)
+    
+    def _fallback_tool_detection(self, user_input: str) -> Optional[Dict[str, Any]]:
+        """
+        Fallback regex-based tool detection (original implementation).
+        
+        This method contains the original regex patterns and serves as a reliable
+        fallback when LLM-based detection fails or returns low confidence.
+        
+        Args:
+            user_input: The user's query string
+            
+        Returns:
+            Dictionary with tool_name, parameters, and confidence if tool detected,
+            None otherwise
+        """
         user_input_lower = user_input.lower()
         
-        # Check for math operations (existing pattern matching)
+        logger.debug(f"Using regex fallback for: {user_input}")
+        
+        # Check for math operations (original pattern matching)
         math_patterns = {
             'add': r'add\s+(\d+)\s*(?:and|by|with)?\s*(\d+)',
             'multiply': r'multiply\s+(\d+)\s*(?:and|by|with)?\s*(\d+)'
@@ -77,30 +235,38 @@ class CustomToolCallingAgent:
         for operation, pattern in math_patterns.items():
             match = re.search(pattern, user_input_lower)
             if match:
+                logger.info(f"✅ Regex detected tool: {operation} (fallback)")
                 return {
                     "tool_name": operation,
                     "parameters": {
                         "a": int(match.group(1)),
                         "b": int(match.group(2))
                     },
-                    "confidence": 0.95
+                    "confidence": 0.95,
+                    "reasoning": "Regex pattern match (fallback)"
                 }
         
-        # Check for other tool keywords
+        # Check for other tool keywords (original keyword matching)
         tool_keywords = {
             'place_order': ['place order', 'purchase', 'buy'],
-            'getorder': ['cart','my cart','my cart status', 'cart status', 'order', 'my order', 'my order status','my shipment','shipment details', 'my shipment details','shipping details', 'tracking details','delivery details','invoice details','ETA','delayed','early','on time','late']
+            'getorder': ['cart','my cart','my cart status', 'cart status', 'order', 'my order', 
+                        'my order status','my shipment','shipment details', 'my shipment details',
+                        'shipping details', 'tracking details','delivery details','invoice details',
+                        'ETA','delayed','early','on time','late']
         }
         
         for tool_name, keywords in tool_keywords.items():
             for keyword in keywords:
                 if keyword in user_input_lower:
+                    logger.info(f"✅ Regex detected tool: {tool_name} (fallback)")
                     return {
                         "tool_name": tool_name,
                         "parameters": self._extract_parameters(user_input, tool_name),
-                        "confidence": 0.8
+                        "confidence": 0.8,
+                        "reasoning": f"Keyword match: '{keyword}' (fallback)"
                     }
         
+        logger.debug("No tool detected by regex fallback")
         return None
     
     def _detect_user_registration(self, user_input: str) -> Optional[Dict[str, Any]]:
@@ -149,6 +315,19 @@ class CustomToolCallingAgent:
                 registration_info['mobile'] = match.group(1)
                 break
         
+        # Extract email
+        email_patterns = [
+            r'\b(?:email|mail)\s*[:\s]*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\b',
+            r'\bmy\s+(?:email|mail)\s+is\s+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\b',
+            r'\b([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\b'  # Just email
+        ]
+        
+        for pattern in email_patterns:
+            match = re.search(pattern, user_input_lower)
+            if match:
+                registration_info['email'] = match.group(1)
+                break
+        
         # Return registration info if we found at least user_id
         if registration_info.get('user_id'):
             logger.info(f"Detected registration info: {registration_info}")
@@ -163,11 +342,12 @@ class CustomToolCallingAgent:
             user_id = registration_info.get('user_id')
             name = registration_info.get('name', 'User')
             mobile = registration_info.get('mobile', 'Not provided')
+            email = registration_info.get('email', 'Not provided')
             
             if not user_id:
                 return {
                     "intent": "registration_error",
-                    "response": "I need your user ID to help you. Please provide your user ID, name, and mobile number.",
+                    "response": "I need your user ID to help you. Please provide your user ID, name, mobile number, and email.",
                     "error": "Missing user_id"
                 }
             
@@ -176,6 +356,7 @@ class CustomToolCallingAgent:
                 'user_id': user_id,
                 'name': name,
                 'mobile': mobile,
+                'email': email,
                 'registered_at': self._get_current_timestamp()
             }
             
@@ -188,6 +369,7 @@ I've registered you with:
 - User ID: {user_id}
 - Name: {name}
 - Mobile: {mobile}
+- Email: {email}
 
 How can I help you today? You can ask me about:
 - Your orders: "What happened to my order 454?"
@@ -219,9 +401,10 @@ To help you with your orders, I need some information from you. Please provide:
 1. **Your User ID** (e.g., "My user ID is 12345")
 2. **Your Name** (e.g., "I'm John Smith") 
 3. **Your Mobile Number** (e.g., "My mobile is 9876543210")
+4. **Your Email** (e.g., "My email is john@example.com")
 
 You can provide all this information in one message, like:
-"My user ID is 12345, I'm John Smith, and my mobile is 9876543210"
+"My user ID is 12345, I'm John Smith, my mobile is 9876543210, and my email is john@example.com"
 
 Once you're registered, I can help you check your orders, track shipments, and more!"""
         

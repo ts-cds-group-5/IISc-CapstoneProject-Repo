@@ -4,6 +4,7 @@ import os
 import subprocess
 from typing import Any, Dict, List, Optional
 from cccp.core.logging import get_logger
+from cccp.core.config import get_mcp_server_path
 
 #Flow
 # Connect: Starts postgresql-mcp-server subprocess
@@ -73,9 +74,13 @@ class MCPPostgresClient:
     async def connect(self):
         """Establish MCP server connection."""
         try:
+            # Get MCP server path from config (with fallback to project root)
+            mcp_server_path = get_mcp_server_path()
+            self.logger.info(f"Using MCP server at: {mcp_server_path}")
+            
             # Start MCP server process
             cmd = [
-                "python", "/tmp/mcp_server.py"
+                "python", mcp_server_path
             ]
             
             # Set environment for the MCP server

@@ -43,10 +43,22 @@ async def generate_response(request: ChatRequest) -> ChatResponse:
         logger.info(f"Received chat request: {request.prompt}")
         logger.info("Using LangGraph agent for general chat")
             
+        # Extract user info from request
+        user_info = None
+        if request.user_name or request.user_mobile or request.user_email:
+            user_info = {
+                "user_id": request.user_id,
+                "name": request.user_name,
+                "mobile": request.user_mobile,
+                "email": request.user_email
+            }
+            logger.info(f"User info provided: {user_info}")
+            
         # Create and invoke the agent
         agent = create_chat_agent()
         result = agent.invoke({
-                "user_input": request.prompt
+                "user_input": request.prompt,
+                "user_info": user_info
             })
         response_text = result["response"]            
         
