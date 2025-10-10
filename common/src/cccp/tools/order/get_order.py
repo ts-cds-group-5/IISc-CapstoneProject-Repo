@@ -1,9 +1,10 @@
 """Get Order Tool for CCCP Advanced.
 
 This tool handles order retrieval with user authentication and validation.
+Queries both g5_order (shopping cart) and cart (evershop) tables.
 """
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from cccp.tools.base import BaseCCCPTool
 from cccp.core.logging import get_logger
 from cccp.core.exceptions import ToolError
@@ -160,13 +161,136 @@ class GetOrderTool(BaseCCCPTool):
     async def _fetch_cart_async(self, cart_id: Optional[str] = None,
                                customer_email: Optional[str] = None,
                                customer_full_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
-        """Async version of cart fetching using MCP client."""
+        """Async version of order/cart fetching using MCP client.
+        
+        Searches both g5_order (our shopping cart orders) and cart (evershop).
+        Priority: g5_order first, then cart as fallback.
+        """
         from cccp.mcp.client import MCPPostgresClient
         
         client = MCPPostgresClient()
         try:
             await client.connect()
             
+            # STEP 1: Try g5_order table first (our shopping cart system)
+            logger.info("GetOrderTool: Searching g5_order table first")
+            g5_order_result = await self._query_g5_order(client, cart_id, customer_email, customer_full_name)
+            
+            if g5_order_result:
+                logger.info("GetOrderTool: Found order in g5_order table")
+                return g5_order_result
+            
+            # STEP 2: Fallback to cart table (evershop system)
+            logger.info("GetOrderTool: Not found in g5_order, trying cart table")
+            cart_result = await self._query_cart(client, cart_id, customer_email, customer_full_name)
+            
+            if cart_result:
+                logger.info("GetOrderTool: Found cart in evershop cart table")
+                return cart_result
+            
+            logger.warning("GetOrderTool: No order found in either g5_order or cart tables")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error fetching order from database: {str(e)}")
+            return None
+        finally:
+            await client.close()
+    
+    async def _query_g5_order(self, client, cart_id: Optional[str], 
+                             customer_email: Optional[str],
+                             customer_full_name: Optional[str]) -> Optional[Dict[str, Any]]:
+        """Query g5_order table for orders placed via our shopping cart."""
+        try:
+            # Note: cart_id parameter won't match order_id, so only search by email/name
+            if cart_id and cart_id.isdigit():
+                # Try order_id if cart_id is numeric
+                query = """
+                    SELECT 
+                        o.order_id, o.customer_name, o.customer_email, o.customer_phone,
+                        o.shipping_address, o.shipping_notes, o.currency, 
+                        o.payment_mode, o.order_status, o.total_price,
+                        o.created_at, o.updated_at
+                    FROM g5_order o
+                    WHERE o.order_id = $1
+                    ORDER BY o.created_at DESC
+                    LIMIT 1
+                """
+                params = {'1': int(cart_id)}
+                result = await client.query(query, params)
+                
+                if result:
+                    return self._transform_g5_order(result[0], await self._get_order_items(client, result[0]['order_id']))
+            
+            # Search by email (most common for our system)
+            if customer_email:
+                query = """
+                    SELECT 
+                        o.order_id, o.customer_name, o.customer_email, o.customer_phone,
+                        o.shipping_address, o.shipping_notes, o.currency,
+                        o.payment_mode, o.order_status, o.total_price,
+                        o.created_at, o.updated_at
+                    FROM g5_order o
+                    WHERE o.customer_email = $1
+                    ORDER BY o.created_at DESC
+                    LIMIT 1
+                """
+                params = {'1': customer_email}
+                result = await client.query(query, params)
+                
+                if result:
+                    return self._transform_g5_order(result[0], await self._get_order_items(client, result[0]['order_id']))
+            
+            # Search by name
+            if customer_full_name:
+                query = """
+                    SELECT 
+                        o.order_id, o.customer_name, o.customer_email, o.customer_phone,
+                        o.shipping_address, o.shipping_notes, o.currency,
+                        o.payment_mode, o.order_status, o.total_price,
+                        o.created_at, o.updated_at
+                    FROM g5_order o
+                    WHERE o.customer_name = $1
+                    ORDER BY o.created_at DESC
+                    LIMIT 1
+                """
+                params = {'1': customer_full_name}
+                result = await client.query(query, params)
+                
+                if result:
+                    return self._transform_g5_order(result[0], await self._get_order_items(client, result[0]['order_id']))
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error querying g5_order: {str(e)}")
+            return None
+    
+    async def _get_order_items(self, client, order_id: int) -> List[Dict[str, Any]]:
+        """Get order items for a given order_id."""
+        try:
+            query = """
+                SELECT 
+                    order_item_id, product_id, product_name,
+                    currency, unit_price, quantity, line_total
+                FROM g5_order_items
+                WHERE order_id = $1
+                ORDER BY order_item_id
+            """
+            params = {'1': order_id}
+            items = await client.query(query, params)
+            logger.debug(f"Retrieved {len(items)} order items for order {order_id}")
+            return items
+            
+        except Exception as e:
+            logger.error(f"Error fetching order items: {str(e)}")
+            return []
+    
+    async def _query_cart(self, client, cart_id: Optional[str],
+                         customer_email: Optional[str],
+                         customer_full_name: Optional[str]) -> Optional[Dict[str, Any]]:
+        """Query cart table for evershop carts (fallback)."""
+        try:
             # Build query based on provided parameters
             if cart_id:
                 #convert cart_id to int
@@ -178,7 +302,7 @@ class GetOrderTool(BaseCCCPTool):
                     WHERE cart_id = $1 AND status = 'true'
                     LIMIT 1
                 """
-                params = {"cart_id": int_cart_id}
+                params = {'1': int_cart_id}
             elif customer_email:
                 cart_query = """
                     SELECT cart_id, customer_email, customer_full_name,
@@ -187,7 +311,7 @@ class GetOrderTool(BaseCCCPTool):
                     WHERE customer_email = $1 AND status = 'true'
                     LIMIT 1
                 """
-                params = {"customer_email": customer_email}
+                params = {'1': customer_email}
             elif customer_full_name:
                 cart_query = """
                     SELECT cart_id, customer_email, customer_full_name,
@@ -196,28 +320,55 @@ class GetOrderTool(BaseCCCPTool):
                     WHERE customer_full_name = $1 AND status = 'true'
                     LIMIT 1
                 """
-                params = {"customer_full_name": customer_full_name}
+                params = {'1': customer_full_name}
             else:
-                logger.error("No search parameter provided")
                 return None
             
             cart_result = await client.query(cart_query, params)
             
             if not cart_result:
-                logger.warning(f"No cart found for search parameters")
                 return None
             
             cart = cart_result[0]
-            logger.info(f"Cart data: {cart}")
+            logger.info(f"Found evershop cart: {cart}")
             
             # Transform to expected format
             return self._transform_evershop_cart(cart)
             
         except Exception as e:
-            logger.error(f"Error fetching cart from database: {str(e)}")
+            logger.error(f"Error querying cart table: {str(e)}")
             return None
-        finally:
-            await client.close()
+    
+    def _transform_g5_order(self, order_data: Dict[str, Any], order_items: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Transform g5_order data to expected format."""
+        try:
+            # Handle Decimal type conversion
+            total_price = order_data.get('total_price', 0.0)
+            if hasattr(total_price, '__float__'):
+                total_value = float(total_price)
+            else:
+                total_value = float(str(total_price))
+            
+            return {
+                "order_id": str(order_data.get('order_id', '')),
+                "customer_email": order_data.get('customer_email', ''),
+                "customer_full_name": order_data.get('customer_name', ''),
+                "customer_phone": order_data.get('customer_phone', ''),
+                "shipping_address": order_data.get('shipping_address', ''),
+                "shipping_note": order_data.get('shipping_notes', ''),
+                "total": total_value,
+                "currency": order_data.get('currency', 'INR'),
+                "payment_mode": order_data.get('payment_mode', 'COD'),
+                "status": order_data.get('order_status', 'unknown'),
+                "order_items": order_items,  # Include items list
+                "source": "shopping_cart",  # Indicate source
+                "created_at": str(order_data.get('created_at', '')),
+                "updated_at": str(order_data.get('updated_at', ''))
+            }
+            
+        except Exception as e:
+            logger.error(f"Error transforming g5_order data: {str(e)}")
+            return None
     
     def _transform_evershop_cart(self, cart_data: Dict[str, Any]) -> Dict[str, Any]:
         """Transform Evershop cart data to expected format."""
@@ -237,6 +388,7 @@ class GetOrderTool(BaseCCCPTool):
                 "total": total_value,
                 "shipping_note": cart_data.get('shipping_note', ''),
                 "status": "active_cart",  # Cart status
+                "source": "evershop",  # Indicate source
                 "created_at": str(cart_data.get('created_at', '')),
                 "updated_at": str(cart_data.get('updated_at', ''))
             }
@@ -282,7 +434,86 @@ class GetOrderTool(BaseCCCPTool):
         return None
     
     def _format_cart_response(self, cart_details: Dict[str, Any], search_context: Optional[str] = None) -> str:
-        """Format cart details for response using customer_full_name."""
+        """Format cart/order details for response."""
+        try:
+            source = cart_details.get('source', 'unknown')
+            
+            # Format response based on source
+            if source == 'shopping_cart':
+                return self._format_g5_order_response(cart_details, search_context)
+            else:
+                return self._format_evershop_cart_response(cart_details, search_context)
+            
+        except Exception as e:
+            logger.error(f"Error formatting response: {str(e)}")
+            return f"Order found but error formatting details: {str(e)}"
+    
+    def _format_g5_order_response(self, order_details: Dict[str, Any], search_context: Optional[str] = None) -> str:
+        """Format g5_order (shopping cart) response with full details."""
+        try:
+            customer_name = order_details.get('customer_full_name', 'Customer')
+            order_id = order_details.get('order_id', 'Unknown')
+            status = order_details.get('status', 'unknown')
+            total = order_details.get('total', 0.0)
+            email = order_details.get('customer_email', 'N/A')
+            phone = order_details.get('customer_phone', 'N/A')
+            payment_mode = order_details.get('payment_mode', 'COD')
+            order_items = order_details.get('order_items', [])
+            
+            # Format status nicely
+            status_display = status.replace('_', ' ').title()
+            
+            # Build response
+            response_parts = [
+                f"📦 Order Details for {customer_name}",
+            ]
+            
+            # Add search context if provided
+            if search_context:
+                response_parts.append(search_context)
+            else:
+                response_parts.append("(From shopping cart orders)")
+            
+            response_parts.extend([
+                f"\nOrder ID: #{order_id}",
+                f"Status: {status_display}",
+                f"Payment: {payment_mode}",
+                f"Email: {email}",
+                f"Phone: {phone}"
+            ])
+            
+            # Add order items if available
+            if order_items:
+                response_parts.append("\nOrder Items:")
+                for i, item in enumerate(order_items, 1):
+                    item_name = item.get('product_name', 'Unknown')
+                    quantity = item.get('quantity', 0)
+                    unit_price = float(item.get('unit_price', 0))
+                    line_total = float(item.get('line_total', 0))
+                    response_parts.append(f"{i}. {item_name} × {quantity}")
+                    response_parts.append(f"   Unit Price: ₹{unit_price:,.2f}")
+                    response_parts.append(f"   Line Total: ₹{line_total:,.2f}")
+            
+            # Add shipping details
+            if order_details.get('shipping_address'):
+                response_parts.append(f"\nShipping Address:")
+                response_parts.append(order_details['shipping_address'])
+            
+            if order_details.get('shipping_note'):
+                response_parts.append(f"\nShipping Notes:")
+                response_parts.append(order_details['shipping_note'])
+            
+            # Add total
+            response_parts.append(f"\nTotal: ₹{total:,.2f}")
+            
+            return "\n".join(response_parts)
+            
+        except Exception as e:
+            logger.error(f"Error formatting g5_order response: {str(e)}")
+            return f"Order found but error formatting: {str(e)}"
+    
+    def _format_evershop_cart_response(self, cart_details: Dict[str, Any], search_context: Optional[str] = None) -> str:
+        """Format evershop cart response."""
         try:
             customer_name = cart_details.get('customer_full_name', 'Customer')
             cart_id = cart_details.get('cart_id', 'Unknown')
@@ -301,6 +532,8 @@ class GetOrderTool(BaseCCCPTool):
             # Add search context if provided
             if search_context:
                 response_parts.append(search_context)
+            else:
+                response_parts.append("(From evershop cart)")
             
             response_parts.extend([
                 f"Cart ID {cart_id}, {status_display}",
@@ -317,7 +550,7 @@ class GetOrderTool(BaseCCCPTool):
             return "\n".join(response_parts)
             
         except Exception as e:
-            logger.error(f"Error formatting cart response: {str(e)}")
+            logger.error(f"Error formatting evershop cart response: {str(e)}")
             return f"Cart found but error formatting details: {str(e)}"
     
     def arun(self, cart_id: Optional[str] = None, customer_email: Optional[str] = None,

@@ -82,7 +82,9 @@ def add_item_to_cart(cart: Dict[str, Any], product: Dict[str, Any], quantity: in
     
     logger.info(f"Added to cart: {product['product_name']} × {quantity}")
     
-    message = f"✅ Added to cart: {product['product_name']} (₹{product['product_price']:,.2f} × {quantity})"
+    # Convert price to float for formatting (database may return string)
+    price_float = float(product['product_price'])
+    message = f"✅ Added to cart: {product['product_name']} (₹{price_float:,.2f} × {quantity})"
     return cart, message
 
 
