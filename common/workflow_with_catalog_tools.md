@@ -1,31 +1,35 @@
-# CCCP Advanced Chat Flow - With Catalog Tools (Updated)
+# CCCP Advanced Chat Flow - Complete Shopping System (Updated Oct 2025)
 
-## Complete System Architecture
+## Complete System Architecture (Updated: Multi-Turn + Shopping Cart)
 
 ```mermaid
 graph TD
     A[User Input] --> B{User Session Exists?}
     B -->|No| C[User Registration Detection]
-    B -->|Yes| D[Tool Detection]
+    B -->|Yes| HIST[Load Conversation History<br/>Last 5 Turns]
     
     C --> C1[Extract User Info]
-    C1 --> C2[Store Session]
+    C1 --> C2[Store Session + Init History]
     C2 --> C3[Welcome Message]
     
-    D --> D1{LLM Tool Detection}
-    D1 -->|Success JSON| E{Intent Classification}
-    D1 -->|Failed/Low Confidence| D2[Regex Fallback]
+    HIST --> D[Tool Detection with Context]
     
-    D2 --> D3{Pattern Match?}
-    D3 -->|Collection Query| CAT1[Catalog Tools]
-    D3 -->|Order Query| ORD1[Order Tools]
-    D3 -->|Math Operation| MATH1[Math Tools]
-    D3 -->|No Match| G[LangGraph Agent]
+    D --> D1{LLM Tool Detection<br/>Llama 3.2 + Context}
+    D1 -->|Success + Confidence ≥ 0.7| E[Validated Tool Detection]
+    D1 -->|Failed/Low Confidence| D2[Parse LLM Params]
     
-    E -->|catalog_inquiry| CAT1
-    E -->|order_inquiry| ORD1
-    E -->|tool_usage| MATH1
-    E -->|general_chat| G
+    D2 --> D3[Regex Fallback + LLM Params]
+    D3 --> D4{Pattern Match?}
+    D4 -->|Order Query PRIORITY| ORD1[Order Tools]
+    D4 -->|Address Pattern| CART5[Checkout Inferred]
+    D4 -->|Collection Query| CAT1[Catalog Tools]
+    D4 -->|Cart Operation| CART1[Cart Tools]
+    D4 -->|Math Operation| MATH1[Math Tools]
+    D4 -->|No Match| G[LangGraph Agent]
+    
+    E --> E1{Validate Params}
+    E1 -->|Valid| EXEC[Execute Tool]
+    E1 -->|Placeholders| D3
     
     CAT1 --> CAT2{Which Catalog Tool?}
     CAT2 -->|Collections List| CAT3[ListCollectionsTool]
@@ -36,21 +40,50 @@ graph TD
     CAT4 --> DB1
     CAT5 --> DB1
     
-    DB1 --> DB2[Query: collection + g5_product tables]
-    DB2 --> CAT6[Format Response]
+    DB1 --> DB2[Query: collection + g5_product]
+    DB2 --> CAT6[Format Catalog Response]
     CAT6 --> RESP[Tool Response]
     
-    ORD1 --> ORD2{Extract Parameters}
-    ORD2 -->|Specific cart_id| ORD3[GetOrderTool by ID]
-    ORD2 -->|Session Email| ORD4[GetOrderTool by Email]
-    ORD2 -->|Session Name| ORD5[GetOrderTool by Name]
+    CART1 --> CART2{Which Cart Tool?}
+    CART2 -->|Add to Cart| CART3[AddToCartTool]
+    CART2 -->|Remove| CART4[RemoveFromCartTool]
+    CART2 -->|View| CART6[ViewCartTool]
+    CART2 -->|Clear| CART7[ClearCartTool]
+    CART2 -->|Checkout| CART5
     
-    ORD3 --> DB3[MCP Postgres Client]
-    ORD4 --> DB3
-    ORD5 --> DB3
-    DB3 --> DB4[Query: cart table]
-    DB4 --> ORD6[Format with Context]
-    ORD6 --> RESP
+    CART3 --> SESS1[Update Session Cart]
+    CART4 --> SESS1
+    CART6 --> SESS2[Read Session Cart]
+    CART7 --> SESS1
+    
+    SESS1 --> RESP
+    SESS2 --> RESP
+    
+    CART5 --> DB3[Create Order in g5_order]
+    DB3 --> DB4[Create Items in g5_order_items]
+    DB4 --> SESS3[Clear Session Cart]
+    SESS3 --> RESP
+    
+    ORD1 --> ORD2{Extract/Inject Params}
+    ORD2 -->|Specific cart_id| ORD3[Query by ID]
+    ORD2 -->|Email in query| ORD4[Query by Email]
+    ORD2 -->|Empty params| ORD5[Inject Session Email]
+    
+    ORD3 --> DB5[Dual-Table Query]
+    ORD4 --> DB5
+    ORD5 --> DB5
+    
+    DB5 --> DB6[1. Try g5_order + items]
+    DB6 --> DB7{Found?}
+    DB7 -->|Yes| ORD7[Format Order with Items]
+    DB7 -->|No| DB8[2. Try cart table]
+    DB8 --> DB9{Found?}
+    DB9 -->|Yes| ORD8[Format Cart]
+    DB9 -->|No| ORD9[Not Found Message]
+    
+    ORD7 --> RESP
+    ORD8 --> RESP
+    ORD9 --> RESP
     
     MATH1 --> MATH2{Math Operation}
     MATH2 -->|Addition| MATH3[AddTool]
@@ -66,71 +99,97 @@ graph TD
     G4 --> G6[Generate Response]
     G5 --> G6
     
-    C3 --> FINAL[ChatResponse]
-    RESP --> FINAL
-    G6 --> FINAL
+    RESP --> TRACK[Save to Conversation History]
+    G6 --> TRACK
+    C3 --> TRACK
+    
+    TRACK --> FINAL[ChatResponse]
     FINAL --> L[Return to User]
     
     style A fill:#e1f5fe
+    style HIST fill:#b39ddb,stroke:#4a148c,stroke-width:2px
     style L fill:#c8e6c9
     style CAT1 fill:#fff59d,stroke:#f57f17,stroke-width:3px
-    style CAT2 fill:#fff9c4
-    style CAT3 fill:#fff9c4
-    style CAT4 fill:#fff9c4
-    style CAT5 fill:#fff9c4
+    style CART1 fill:#ffccbc,stroke:#d84315,stroke-width:3px
+    style CART5 fill:#ef9a9a,stroke:#c62828,stroke-width:3px
     style ORD1 fill:#c5e1a5,stroke:#33691e,stroke-width:3px
-    style ORD2 fill:#dcedc8
+    style ORD5 fill:#aed581,stroke:#33691e,stroke-width:2px
     style MATH1 fill:#ffccbc
-    style DB1 fill:#b3e5fc,stroke:#0277bd,stroke-width:2px
-    style DB2 fill:#b3e5fc
-    style DB3 fill:#b3e5fc
-    style DB4 fill:#b3e5fc
+    style DB5 fill:#90caf9,stroke:#0277bd,stroke-width:3px
+    style DB6 fill:#b3e5fc
+    style SESS1 fill:#ce93d8,stroke:#6a1b9a,stroke-width:2px
+    style TRACK fill:#b39ddb,stroke:#4a148c,stroke-width:2px
     style RESP fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
 ```
 
-## Updated Tool System
+## Complete Tool System (11 Production Tools)
 
 ```mermaid
 graph LR
-    subgraph "Tool Registry (7 Tools)"
+    subgraph "Tool Registry - 11 Tools"
         T1[listcollections]
         T2[getcatalog]
         T3[searchproducts]
-        T4[getorder]
-        T5[placeorder - stub]
-        T6[add]
-        T7[multiply]
+        T4[addtocart]
+        T5[removefromcart]
+        T6[viewcart]
+        T7[clearcart]
+        T8[checkout]
+        T9[getorder]
+        T10[add]
+        T11[multiply]
     end
     
-    subgraph "Catalog Tools - NEW"
+    subgraph "Catalog Tools - 3"
         T1
         T2
         T3
     end
     
-    subgraph "Order Tools"
+    subgraph "Shopping Cart Tools - 5"
         T4
         T5
-    end
-    
-    subgraph "Math Tools"
         T6
         T7
+        T8
+    end
+    
+    subgraph "Order Tools - 1"
+        T9
+    end
+    
+    subgraph "Math Tools - 2"
+        T10
+        T11
     end
     
     T1 --> DB[(PostgreSQL)]
     T2 --> DB
     T3 --> DB
-    T4 --> DB
+    T4 --> SESS[User Session<br/>Cart State]
+    T5 --> SESS
+    T6 --> SESS
+    T7 --> SESS
+    T8 --> DB2[(g5_order<br/>g5_order_items)]
+    T9 --> DB3[(Dual Query:<br/>g5_order + cart)]
+    
+    SESS --> DB
     
     style T1 fill:#fff59d
     style T2 fill:#fff59d
     style T3 fill:#fff59d
-    style T4 fill:#c5e1a5
-    style T5 fill:#d3d3d3,stroke-dasharray: 5 5
+    style T4 fill:#ffccbc
+    style T5 fill:#ffccbc
     style T6 fill:#ffccbc
     style T7 fill:#ffccbc
+    style T8 fill:#ef9a9a,stroke:#c62828,stroke-width:2px
+    style T9 fill:#c5e1a5
+    style T10 fill:#e0e0e0
+    style T11 fill:#e0e0e0
     style DB fill:#b3e5fc
+    style DB2 fill:#90caf9,stroke:#0277bd,stroke-width:2px
+    style DB3 fill:#90caf9,stroke:#0277bd,stroke-width:2px
+    style SESS fill:#ce93d8,stroke:#6a1b9a,stroke-width:2px
 ```
 
 ## Intent Classification Flow
@@ -195,54 +254,93 @@ graph TD
     style M fill:#c8e6c9
 ```
 
-## Order Query with Session Fallback
+## Order Query with Multi-Turn Context + Dual-Table Query (UPDATED)
 
 ```mermaid
 graph TD
-    A[User: 'I placed an order earlier'] --> B[Tool Detection]
-    B --> C[getorder detected]
+    A[User: 'show me my order'] --> B[Load Conversation History]
+    B --> C[Tool Detection + Context]
     
-    C --> D[Extract Parameters]
-    D --> E{Cart ID Pattern?}
-    E -->|cart 454| F1[Use cart_id=454]
-    E -->|No match| E2{Email in Query?}
+    C --> D{LLM Detection}
+    D -->|Success| E[getorder + params]
+    D -->|Low Confidence| F[Regex Fallback]
     
-    E2 -->|Yes| F2[Use extracted email]
-    E2 -->|No| E3{Order Keywords?}
+    E --> G{Validate Params}
+    G -->|Placeholder 'your_order_id'| F
+    G -->|Valid| H
     
-    E3 -->|order, earlier| E4{Session Email?}
-    E4 -->|Yes| F3[Use session email]
-    E4 -->|No| F4[Empty params - Error]
+    F --> F1{Order Keywords?}
+    F1 -->|Yes| F2{LLM Params Valid?}
+    F2 -->|Yes| H[Extract Parameters]
+    F2 -->|No| H
     
-    F1 --> G[GetOrderTool.run]
-    F2 --> G
-    F3 --> G
-    F4 --> G
+    H --> I{Cart ID Pattern?}
+    I -->|cart 454, order 123| J1[Use cart_id]
+    I -->|No match| I2{Email in Query?}
     
-    G --> H[MCP Query Cart Table]
-    H --> I{Cart Found?}
+    I2 -->|Yes| J2[Use extracted email]
+    I2 -->|No| I3{Order Keywords + Session?}
     
-    I -->|Yes| J[Format with Context<br/>'Searched by email: ...']
-    I -->|No - by email| K[Helpful Message:<br/>'No cart for your email']
-    I -->|No - by ID| L[Error: Cart not found]
+    I3 -->|Yes + Email exists| J3[Inject Session Email]
+    I3 -->|Yes + Name exists| J4[Inject Session Name]
+    I3 -->|No session| J5[Empty - Will inject later]
     
-    J --> M[Return to User]
-    K --> M
-    L --> M
+    J1 --> K{Empty Params Check}
+    J2 --> K
+    J3 --> K
+    J4 --> K
+    J5 --> K
+    
+    K -->|Empty params| K1[Agent Injects Session Email]
+    K -->|Has params| L
+    K1 --> L
+    
+    L[GetOrderTool.run] --> M[Dual-Table Query]
+    
+    M --> M1[1. Query g5_order table]
+    M1 --> M2{Found in g5_order?}
+    M2 -->|Yes| M3[Fetch g5_order_items]
+    M3 --> N1[Format Order + Items<br/>Source: shopping cart]
+    
+    M2 -->|No| M4[2. Query cart table evershop]
+    M4 --> M5{Found in cart?}
+    M5 -->|Yes| N2[Format Cart<br/>Source: evershop]
+    M5 -->|No| N3[Not Found Message]
+    
+    N1 --> O{Search Context?}
+    N2 --> O
+    N3 --> O
+    
+    O -->|By Email| P1[Add: 'Searched by your email']
+    O -->|By ID| P2[Show: Cart/Order ID]
+    O -->|Not found| P3[Helpful: 'No orders for email']
+    
+    P1 --> Q[Save to Conversation History]
+    P2 --> Q
+    P3 --> Q
+    
+    Q --> R[Return to User]
     
     style A fill:#e1f5fe
-    style C fill:#c5e1a5
-    style F3 fill:#aed581,stroke:#33691e,stroke-width:2px
-    style J fill:#c8e6c9
-    style K fill:#fff9c4
-    style M fill:#c8e6c9
+    style B fill:#b39ddb,stroke:#4a148c,stroke-width:2px
+    style G fill:#fff9c4,stroke:#f57f17,stroke-width:2px
+    style J3 fill:#aed581,stroke:#33691e,stroke-width:2px
+    style K1 fill:#aed581,stroke:#33691e,stroke-width:2px
+    style M1 fill:#90caf9,stroke:#0277bd,stroke-width:2px
+    style M4 fill:#b3e5fc
+    style N1 fill:#c8e6c9
+    style N2 fill:#dcedc8
+    style Q fill:#b39ddb,stroke:#4a148c,stroke-width:2px
+    style R fill:#c8e6c9
 ```
 
-## Database Schema
+## Database Schema (Updated with Shopping Cart Tables)
 
 ```mermaid
 erDiagram
     COLLECTION ||--o{ G5_PRODUCT : contains
+    G5_PRODUCT ||--o{ G5_ORDER_ITEMS : ordered_in
+    G5_ORDER ||--o{ G5_ORDER_ITEMS : has
     CART ||--o{ CART_ITEM : has
     G5_PRODUCT ||--o{ CART_ITEM : referenced_in
     
@@ -268,6 +366,32 @@ erDiagram
         timestamp updated_at
     }
     
+    G5_ORDER {
+        int order_id PK
+        varchar customer_name
+        varchar customer_email
+        varchar customer_phone
+        text shipping_address
+        text shipping_notes
+        varchar currency
+        varchar payment_mode
+        varchar order_status
+        numeric total_price
+        timestamp created_at
+        timestamp updated_at
+    }
+    
+    G5_ORDER_ITEMS {
+        int order_item_id PK
+        int order_id FK
+        int product_id FK
+        text product_name
+        varchar currency
+        numeric unit_price
+        int quantity
+        numeric line_total
+    }
+    
     CART {
         int cart_id PK
         varchar customer_email
@@ -290,7 +414,7 @@ erDiagram
     }
 ```
 
-## Supported User Queries
+## Supported User Queries (Complete Shopping System)
 
 ```mermaid
 mindmap
@@ -300,12 +424,14 @@ mindmap
         What collections?
         Show collections
         List collections
+        what do you have?
       Specific Collection
         Show me Books
-        Get Electronics
+        Do you have Electronics?
         All Furniture
         Books?
         Give me Clothing
+        show Electronics
       Price Filtering
         Under 10000
         Products below 5000
@@ -314,15 +440,40 @@ mindmap
         Find laptops
         Search Samsung
         Looking for chairs
+        Find Atomic Habits
+    Shopping Cart
+      Add to Cart
+        Add Atomic Habits
+        Add 2 Samsung Galaxy
+        buy The White Tiger
+        I want Lenovo laptop
+      View Cart
+        Show my cart
+        View cart
+        What's in my cart
+      Remove from Cart
+        Remove Atomic Habits
+        Delete Samsung
+        Take out The White Tiger
+      Clear Cart
+        Clear my cart
+        Empty cart
+        Reset cart
+      Checkout
+        Checkout
+        Place order
+        123 Main St Bangalore
+        Ship to address...
     Order Queries
-      Specific Cart
+      Specific Order
         cart 454
         order 123
         my cart cart789
-      Vague Queries
+      Vague Queries NEW
+        Do you have my order?
+        show me my order
+        my order status
         I placed an order earlier
-        my order
-        order status
       Properties
         order with total 330
         shipment details
@@ -414,45 +565,83 @@ graph TD
     style I fill:#c8e6c9
 ```
 
-## Llama 3.2 Tool Detection Flow
+## Llama 3.2 Tool Detection Flow (Enhanced: Context + Validation + Negative Examples)
 
 ```mermaid
 graph TD
-    A[User Input] --> B[Get Available Tools Info]
-    B --> C[Generate v2_llama_optimized Prompt]
+    A[User Input] --> A1[Load Conversation History]
+    A1 --> A2[Format Last 5 Turns]
+    A2 --> B[Get Available Tools Info]
+    B --> C[Generate v2_llama_optimized Prompt<br/>28+ Examples + 5 Negative Samples]
     
-    C --> D[Llama 3.2 LLM]
+    C --> C1[Include Conversation Context]
+    C1 --> D[Llama 3.2 LLM]
     D --> E{JSON Response?}
     
-    E -->|Valid JSON| F{Tool Detected?}
-    E -->|Empty/Invalid| G[Regex Fallback]
+    E -->|Valid JSON| F[Parse JSON]
+    E -->|Empty/Invalid| G0[Extract Any LLM Params]
     
-    F -->|tool_name + params| H[Execute Tool]
-    F -->|null/low confidence| G
+    F --> F1{Handle Flat/Nested JSON}
+    F1 -->|Nested 'parameters' key| F2[Extract from params]
+    F1 -->|Flat format| F3[Extract non-metadata keys]
     
-    G --> I{Pattern Match?}
-    I -->|Collection keyword| J1[getcatalog]
-    I -->|Collections list| J2[listcollections]
-    I -->|Search keyword| J3[searchproducts]
-    I -->|Order keyword| J4[getorder]
-    I -->|Math pattern| J5[add/multiply]
+    F2 --> F4{Tool + Confidence?}
+    F3 --> F4
+    
+    F4 -->|tool_name + conf ≥ 0.7| H[Execute Tool]
+    F4 -->|No tool/low confidence| G0
+    
+    G0 --> G[Regex Fallback + LLM Params]
+    
+    G --> I{Pattern Priority}
+    I -->|1. Order keywords| J4[getorder]
+    I -->|2. Address pattern| J6[checkout inferred]
+    I -->|3. Cart keywords| J7[cart tools]
+    I -->|4. Collection name| J1[getcatalog]
+    I -->|5. Search keyword| J3[searchproducts]
+    I -->|6. Collections list| J2[listcollections]
+    I -->|7. Math pattern| J5[add/multiply]
     I -->|No match| K[General Chat]
     
-    J1 --> H
+    J4 --> V1{Validate LLM Params}
+    V1 -->|Placeholder 'your_order_id'| V2[Discard, extract from input]
+    V1 -->|Valid params| V3[Use LLM params]
+    V2 --> H
+    V3 --> H
+    
+    J1 --> V4{LLM Params Available?}
+    V4 -->|Yes + valid| V5[Use LLM params]
+    V4 -->|No| V6[Extract from regex]
+    V5 --> H
+    V6 --> H
+    
     J2 --> H
     J3 --> H
-    J4 --> H
     J5 --> H
+    J6 --> H
+    J7 --> H
     
-    H --> L[Tool Result]
+    H --> H1{Empty Params for getorder?}
+    H1 -->|Yes| H2[Inject Session Email]
+    H1 -->|No| H3[Use Params]
+    H2 --> L
+    H3 --> L
+    
+    L[Tool Result] --> SAVE[Save to Conversation History<br/>Track: user input + tool used]
     K --> M[LLM Response]
+    M --> SAVE
     
-    L --> N[Return to User]
-    M --> N
+    SAVE --> N[Return to User]
     
+    style A1 fill:#b39ddb,stroke:#4a148c,stroke-width:2px
+    style C fill:#9fa8da,stroke:#3f51b5,stroke-width:2px
     style D fill:#9fa8da,stroke:#3f51b5,stroke-width:2px
+    style F1 fill:#fff9c4,stroke:#f57f17,stroke-width:2px
     style G fill:#ffab91,stroke:#e64a19,stroke-width:2px
-    style H fill:#c8e6c9
+    style V1 fill:#fff9c4,stroke:#f57f17,stroke-width:2px
+    style H2 fill:#aed581,stroke:#33691e,stroke-width:2px
+    style SAVE fill:#b39ddb,stroke:#4a148c,stroke-width:2px
+    style L fill:#c8e6c9
 ```
 
 ## Database Query Flow (Positional Parameters)
@@ -567,5 +756,83 @@ graph TD
     style MATH fill:#ffccbc,stroke:#d84315,stroke-width:2px
     style PG fill:#b3e5fc,stroke:#0277bd,stroke-width:3px
     style FMT fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+```
+
+## Multi-Turn Shopping Flow Example (NEW - Oct 2025)
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant A as Agent + Llama 3.2
+    participant S as Session (Cart + History)
+    participant DB as PostgreSQL
+    
+    Note over U,DB: Turn 1: Browse Catalog
+    U->>A: "show me Books"
+    A->>A: LLM detects: getcatalog(collection_name="Books")
+    A->>DB: Query g5_product WHERE collection='Books'
+    DB-->>A: 6 books found
+    A->>S: Save turn: getcatalog
+    A-->>U: 📋 Books Catalog (6 products)
+    
+    Note over U,DB: Turn 2: Add to Cart
+    U->>A: "Add Atomic Habits"
+    A->>S: Load history (Turn 1: getcatalog Books)
+    A->>A: Context: User browsing Books
+    A->>A: LLM detects: addtocart("Atomic Habits", qty=1)
+    A->>DB: Find product "Atomic Habits"
+    DB-->>A: Product found
+    A->>S: Add to cart (1 item)
+    A->>S: Save turn: addtocart
+    A-->>U: ✅ Added Atomic Habits (₹699)
+    
+    Note over U,DB: Turn 3: Continue Browsing
+    U->>A: "What about Electronics?"
+    A->>S: Load history (Turn 1: getcatalog, Turn 2: addtocart)
+    A->>A: Context: User shopping, cart has 1 item
+    A->>A: LLM detects: getcatalog("Electronics")
+    A->>DB: Query Electronics collection
+    DB-->>A: 6 electronics found
+    A->>S: Save turn: getcatalog
+    A-->>U: 📋 Electronics Catalog (6 products)
+    
+    Note over U,DB: Turn 4: Add More Items
+    U->>A: "Add 2 Samsung Galaxy"
+    A->>S: Load history (3 turns, cart exists)
+    A->>A: LLM detects: addtocart("Samsung Galaxy", qty=2)
+    A->>DB: Find product
+    DB-->>A: Samsung found
+    A->>S: Update cart (2 items, 3 units)
+    A->>S: Save turn: addtocart
+    A-->>U: ✅ Added Samsung × 2 (₹33,998)
+    
+    Note over U,DB: Turn 5: Checkout (Address Only!)
+    U->>A: "123 Main St, Bangalore 560001"
+    A->>S: Load history (Turns with addtocart)
+    A->>A: Context: User added items recently
+    A->>A: Detects: Address pattern + cart context
+    A->>A: Infers: checkout!
+    A->>S: Validate cart (2 items)
+    A->>DB: Create order in g5_order
+    A->>DB: Create items in g5_order_items
+    DB-->>A: Order #1 created
+    A->>S: Clear cart
+    A->>S: Save turn: checkout
+    A-->>U: 📦 Order Confirmation #1
+    
+    Note over U,DB: Turn 6: Track Order (Vague Query!)
+    U->>A: "show me my order"
+    A->>S: Load history (Turn 5: checkout)
+    A->>A: Context: User just checked out
+    A->>A: LLM detects: getorder(params={})
+    A->>A: Empty params → Inject session email
+    A->>DB: Query g5_order by email (Dual-table)
+    DB-->>A: Order #1 found (with items)
+    A->>S: Save turn: getorder
+    A-->>U: 📦 Order #1 Details (2 items)
+    
+    rect rgb(200, 230, 201)
+        Note over U,DB: ✅ Complete Multi-Turn Flow<br/>6 Turns, 5 Tools Used<br/>Natural Conversation!
+    end
 ```
 
