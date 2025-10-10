@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     #cors_origins: list[str] = Field(default=["*"], env="CORS_ORIGINS")
 
     
+    # Shopping Cart Settings
+    cart_max_items: int = Field(default=10, env="CART_MAX_ITEMS")
+    cart_session_timeout: int = Field(default=3600, env="CART_SESSION_TIMEOUT")  # 1 hour
+    
     # Database (for future use)
     database_url: Optional[str] = Field(default=None, env="DATABASE_URL")
     # PostgreSQL MCP

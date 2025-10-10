@@ -305,3 +305,133 @@ WHERE COALESCE(p.product_stock_qty, 0) > 0   -- remove this line if you want all
 ORDER BY c.name, p.product_name;
 ```
 --------
+---ORDER
+```
+-- =========================
+-- Orders
+-- =========================
+CREATE TABLE IF NOT EXISTS public.g5_order
+(
+    order_id integer NOT NULL GENERATED ALWAYS AS IDENTITY (
+        INCREMENT 1 START 1 MINVALUE 1 MAXVALUE 2147483647 CACHE 1
+    ),
+    customer_name  text COLLATE pg_catalog."default" NOT NULL,
+    customer_email text COLLATE pg_catalog."default" NOT NULL,
+    customer_phone character varying(20),
+    shipping_address text COLLATE pg_catalog."default" NOT NULL,
+    shipping_notes   text COLLATE pg_catalog."default",
+    currency character varying COLLATE pg_catalog."default" NOT NULL DEFAULT 'INR',
+    total_price numeric(12,4) NOT NULL DEFAULT 0,  -- order total (see trigger/view below)
+    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT g5_order_pkey PRIMARY KEY (order_id),
+    CONSTRAINT g5_order_email_check CHECK (position('@' in customer_email) > 1),
+    CONSTRAINT g5_order_total_nonneg CHECK (total_price >= 0)
+)
+TABLESPACE pg_default;
+
+
+-- =========================
+-- Order Items
+-- =========================
+```
+-- ===================================================================
+-- DROP existing objects (order depends on items for CASCADE, so drop items first)
+-- ===================================================================
+DROP TABLE IF EXISTS public.g5_order_items CASCADE;
+DROP TABLE IF EXISTS public.g5_order CASCADE;
+DROP TYPE  IF EXISTS public.order_status_enum;
+
+-- ===================================================================
+-- Type: order_status_enum
+-- Allowed values: received, processing, in transit, delivered, cancelled, returned
+-- (Using a PostgreSQL ENUM for strict status control)
+-- ===================================================================
+CREATE TYPE public.order_status_enum AS ENUM (
+  'received',
+  'processing',
+  'in transit',
+  'delivered',
+  'cancelled',
+  'returned'
+);
+
+-- ===================================================================
+-- Table: g5_order
+-- ===================================================================
+CREATE TABLE public.g5_order
+(
+    order_id integer NOT NULL GENERATED ALWAYS AS IDENTITY (
+        INCREMENT 1 START 1 MINVALUE 1 MAXVALUE 2147483647 CACHE 1
+    ),
+    customer_name  text COLLATE pg_catalog."default" NOT NULL,
+    customer_email text COLLATE pg_catalog."default" NOT NULL,
+    customer_phone character varying(20),
+    shipping_address text COLLATE pg_catalog."default" NOT NULL,
+    shipping_notes   text COLLATE pg_catalog."default",
+    currency character varying COLLATE pg_catalog."default" NOT NULL DEFAULT 'INR',
+    payment_mode character varying COLLATE pg_catalog."default" NOT NULL DEFAULT 'COD',
+    order_status public.order_status_enum NOT NULL DEFAULT 'received',
+    total_price numeric(12,4) NOT NULL DEFAULT 0,
+    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT g5_order_pkey PRIMARY KEY (order_id),
+    CONSTRAINT g5_order_email_check CHECK (position('@' in customer_email) > 1),
+    CONSTRAINT g5_order_total_nonneg CHECK (total_price >= 0)
+)
+TABLESPACE pg_default;
+
+--INDEX
+CREATE INDEX IF NOT EXISTS idx_g5_order_status ON public.g5_order(order_status);
+
+-- ===================================================================
+-- Table: g5_order_items
+-- ===================================================================
+--DROP TABLE IF EXISTS public.g5_order_items CASCADE;
+--DROP TABLE IF EXISTS public.g5_order CASCADE;
+
+CREATE TABLE public.g5_order_items
+(
+    order_item_id integer NOT NULL GENERATED ALWAYS AS IDENTITY (
+        INCREMENT 1 START 1 MINVALUE 1 MAXVALUE 2147483647 CACHE 1
+    ),
+    order_id   integer NOT NULL,
+    product_id integer NOT NULL,
+
+    -- Snapshots for historical accuracy at purchase time
+    product_name text COLLATE pg_catalog."default" NOT NULL,
+    currency character varying COLLATE pg_catalog."default" NOT NULL,
+    unit_price numeric(12,4) NOT NULL,
+    quantity   integer NOT NULL,
+
+    line_total numeric(12,4) GENERATED ALWAYS AS (unit_price * quantity) STORED,
+
+    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT g5_order_items_pkey PRIMARY KEY (order_item_id),
+
+    CONSTRAINT g5_order_items_order_fkey FOREIGN KEY (order_id)
+        REFERENCES public.g5_order (order_id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+
+    CONSTRAINT g5_order_items_product_fkey FOREIGN KEY (product_id)
+        REFERENCES public.g5_product (product_id)
+        ON UPDATE CASCADE,
+
+    CONSTRAINT g5_order_items_qty_check CHECK (quantity > 0),
+    CONSTRAINT g5_order_items_price_nonneg CHECK (unit_price >= 0),
+
+    -- One row per product per order (adjust if you need multiple lines per product, e.g., options)
+    CONSTRAINT g5_order_items_unique_per_order UNIQUE (order_id, product_id)
+)
+TABLESPACE pg_default;
+
+-- Helpful indexes
+CREATE INDEX IF NOT EXISTS idx_g5_order_items_order_id   ON public.g5_order_items(order_id);
+CREATE INDEX IF NOT EXISTS idx_g5_order_items_product_id ON public.g5_order_items(product_id);
+
+```

@@ -302,6 +302,35 @@ Parameters: {self._get_tool_parameters(tool_instance)}"""
                         "reasoning": f"Direct collection query: '{collection}' (fallback)"
                     }
         
+        # Check for cart operation keywords (highest priority after specific IDs)
+        cart_keywords = {
+            'viewcart': ['show cart', 'view cart', 'my cart', 'cart contents',
+                        'what\'s in cart', 'cart summary', 'show my cart'],
+            'clearcart': ['clear cart', 'empty cart', 'delete cart', 'cancel cart',
+                         'reset cart', 'clear my cart'],
+            'removefromcart': ['remove from cart', 'delete from cart', 'take out',
+                              'remove', 'delete'],  # Will check if cart context
+            'checkout': ['checkout', 'place order', 'complete order', 'buy now',
+                        'finish order', 'proceed to checkout', 'complete my order'],
+            'addtocart': ['add to cart', 'add', 'buy', 'purchase', 'want to buy',
+                         'i want', 'get me', 'add this', 'buy this']
+        }
+        
+        for tool_name, keywords in cart_keywords.items():
+            for keyword in keywords:
+                if keyword in user_input_lower:
+                    logger.info(f"✅ Regex detected cart tool: {tool_name} (fallback)")
+                    
+                    # Extract parameters for cart operations
+                    params = self._extract_cart_operation_parameters(user_input, tool_name)
+                    
+                    return {
+                        "tool_name": tool_name,
+                        "parameters": params,
+                        "confidence": 0.85,
+                        "reasoning": f"Cart operation keyword match: '{keyword}' (fallback)"
+                    }
+        
         # Check for catalog tool keywords
         catalog_keywords = {
             'listcollections': ['what collections', 'show collections', 'list collections', 
@@ -395,6 +424,102 @@ Parameters: {self._get_tool_parameters(tool_instance)}"""
                 if keyword and len(keyword) >= 2:
                     params['keyword'] = keyword
                 break
+        
+        return params
+    
+    def _extract_cart_operation_parameters(self, user_input: str, tool_name: str) -> Dict[str, Any]:
+        """Extract parameters for cart operations from user input."""
+        params = {}
+        user_input_lower = user_input.lower()
+        
+        if tool_name == 'addtocart':
+            # Extract product name and quantity
+            # Patterns: "add 2 Samsung", "buy 3 books", "I want Lenovo laptop"
+            
+            # Try to extract quantity + product
+            quantity_patterns = [
+                r'(?:add|buy|want|purchase|get)\s+(?:me\s+)?(\d+)\s+(.+?)(?:\s+to cart|$)',
+                r'(\d+)\s+(.+?)(?:\s+to cart|$)',  # "2 Samsung to cart"
+            ]
+            
+            for pattern in quantity_patterns:
+                match = re.search(pattern, user_input_lower)
+                if match:
+                    params['quantity'] = int(match.group(1))
+                    product_name = match.group(2).strip()
+                    # Clean up common words
+                    product_name = product_name.replace('to cart', '').replace('to my cart', '').strip()
+                    if product_name:
+                        params['product_name'] = product_name
+                    logger.debug(f"Extracted from cart add: quantity={params['quantity']}, product={product_name}")
+                    return params
+            
+            # Try to extract just product name (default quantity = 1)
+            product_patterns = [
+                r'(?:add|buy|want|purchase|get|order)(?:\s+me)?\s+(.+?)(?:\s+to cart|$)',
+                r'(?:add|buy)\s+(.+)',
+            ]
+            
+            for pattern in product_patterns:
+                match = re.search(pattern, user_input_lower)
+                if match:
+                    product_name = match.group(1).strip()
+                    # Clean up
+                    product_name = product_name.replace('to cart', '').replace('to my cart', '').strip()
+                    product_name = product_name.replace('the', '').replace('a', '').strip()
+                    if product_name and len(product_name) >= 2:
+                        params['product_name'] = product_name
+                        params['quantity'] = 1  # Default
+                        logger.debug(f"Extracted product for cart: {product_name}")
+                        return params
+        
+        elif tool_name == 'removefromcart':
+            # Extract product name to remove
+            remove_patterns = [
+                r'(?:remove|delete|take out)\s+(.+?)(?:\s+from cart|$)',
+                r'remove\s+(.+)',
+            ]
+            
+            for pattern in remove_patterns:
+                match = re.search(pattern, user_input_lower)
+                if match:
+                    product_name = match.group(1).strip()
+                    product_name = product_name.replace('from cart', '').replace('from my cart', '').strip()
+                    product_name = product_name.replace('the', '').replace('a', '').strip()
+                    if product_name and len(product_name) >= 2:
+                        params['product_name'] = product_name
+                        logger.debug(f"Extracted product to remove: {product_name}")
+                        break
+        
+        elif tool_name == 'checkout':
+            # Extract shipping address and notes
+            # Pattern: "checkout, ship to 123 Main St, handle with care"
+            
+            address_patterns = [
+                r'(?:ship to|deliver to|address is|address:)\s+(.+?)(?:\.|$)',
+                r'(?:checkout|place order).*?(?:to|at)\s+(.+?)(?:\.|$)',
+            ]
+            
+            for pattern in address_patterns:
+                match = re.search(pattern, user_input, re.IGNORECASE)
+                if match:
+                    address_text = match.group(1).strip()
+                    
+                    # Try to separate address from notes
+                    # Common patterns: "address, notes" or "address. notes"
+                    if ',' in address_text:
+                        parts = address_text.split(',')
+                        # Last part might be notes if it contains keywords
+                        if len(parts) > 3 and any(word in parts[-1].lower() for word in ['handle', 'care', 'fragile', 'note']):
+                            params['shipping_address'] = ','.join(parts[:-1]).strip()
+                            params['shipping_notes'] = parts[-1].strip()
+                        else:
+                            params['shipping_address'] = address_text
+                    else:
+                        params['shipping_address'] = address_text
+                    
+                    logger.debug(f"Extracted shipping info: {params}")
+                    break
         
         return params
     
@@ -622,7 +747,13 @@ Once you're registered, I can help you check your orders, track shipments, and m
                     "tool_name": tool_name
                 }
             
-            # Execute the tool
+            # Execute the tool (pass user_session for cart tools)
+            cart_tools = ['addtocart', 'removefromcart', 'viewcart', 'clearcart', 'checkout']
+            if tool_name in cart_tools:
+                # Cart tools need access to user session for cart state
+                parameters['user_session'] = self.user_session
+                logger.debug(f"Passing user_session to cart tool: {tool_name}")
+            
             result = tool.run(**parameters)
             
             # Generate a natural language response
@@ -656,8 +787,9 @@ Once you're registered, I can help you check your orders, track shipments, and m
         elif tool_name == 'multiply':
             a, b = parameters.get('a', 0), parameters.get('b', 0)
             return f"The result of multiplying {a} and {b} is {result}"
-        elif tool_name == 'getorder':
-            # For getorder tool, just return the result directly (it's already formatted)
+        elif tool_name in ['getorder', 'addtocart', 'removefromcart', 'viewcart', 'clearcart', 
+                          'checkout', 'listcollections', 'getcatalog', 'searchproducts']:
+            # For these tools, the result is already formatted nicely
             return str(result)
         else:
             return f"Tool '{tool_name}' executed successfully. Result: {result}"
