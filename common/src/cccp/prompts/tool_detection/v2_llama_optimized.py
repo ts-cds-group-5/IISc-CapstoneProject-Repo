@@ -50,6 +50,9 @@ You MUST respond with ONLY valid JSON in this exact format:
 Examples:
 - "What's in my cart cart454?" → {{"tool_name": "getorder", "parameters": {{"cart_id": "cart454"}}, "confidence": 0.9, "reasoning": "User asking about specific cart"}}
 - "What happened to my order 2?" → {{"tool_name": "getorder", "parameters": {{"cart_id": "2"}}, "confidence": 0.85, "reasoning": "User asking about order/cart 2"}}
+- "What collections do you have?" → {{"tool_name": "listcollections", "parameters": {{}}, "confidence": 0.95, "reasoning": "User asking for collections list"}}
+- "Show me Electronics catalog" → {{"tool_name": "getcatalog", "parameters": {{"collection_name": "Electronics"}}, "confidence": 0.9, "reasoning": "User wants Electronics products"}}
+- "Find laptops under 50000" → {{"tool_name": "searchproducts", "parameters": {{"keyword": "laptop", "max_price": 50000}}, "confidence": 0.9, "reasoning": "User searching with keyword and price"}}
 - "Hello there" → {{"tool_name": null, "parameters": {{}}, "confidence": 0.0, "reasoning": "General greeting"}}
 - "Multiply 5 and 3" → {{"tool_name": "multiply", "parameters": {{"a": 5, "b": 3}}, "confidence": 0.95, "reasoning": "Clear math operation"}}
 

@@ -92,24 +92,45 @@ Parameters: {self._get_tool_parameters(tool_instance)}"""
             ValueError: If no valid JSON found in response
         """
         try:
+            # Log the raw response for debugging
+            logger.debug(f"Raw LLM response (first 200 chars): {response[:200]}")
+            
             # Remove common JSON artifacts
             cleaned = response.strip()
             cleaned = cleaned.replace('```json', '').replace('```', '').strip()
             
-            # Try to find JSON object
+            # Remove any leading text before the JSON (Llama sometimes adds preamble)
+            # Look for the FIRST { and FIRST matching }
             start = cleaned.find('{')
-            end = cleaned.rfind('}') + 1
+            if start == -1:
+                raise ValueError("No opening brace found in response")
             
-            if start != -1 and end != 0:
-                json_str = cleaned[start:end]
-                parsed = json.loads(json_str)
-                logger.debug(f"Successfully parsed JSON: {parsed}")
-                return parsed
-            else:
-                raise ValueError("No valid JSON found in response")
+            # Find the matching closing brace for the first opening brace
+            brace_count = 0
+            end = -1
+            for i in range(start, len(cleaned)):
+                if cleaned[i] == '{':
+                    brace_count += 1
+                elif cleaned[i] == '}':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        end = i + 1
+                        break
+            
+            if end == -1:
+                raise ValueError("No matching closing brace found in response")
+            
+            json_str = cleaned[start:end]
+            logger.debug(f"Extracted JSON string: {json_str}")
+            
+            # Parse the JSON
+            parsed = json.loads(json_str)
+            logger.info(f"Successfully parsed JSON: {parsed}")
+            return parsed
                 
         except json.JSONDecodeError as e:
             logger.error(f"JSON validation failed: {str(e)}")
+            logger.error(f"Attempted to parse: {json_str if 'json_str' in locals() else 'N/A'}")
             raise ValueError(f"Invalid JSON: {str(e)}")
     
     def process_user_input(self, user_input: str, user_info: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -246,6 +267,64 @@ Parameters: {self._get_tool_parameters(tool_instance)}"""
                     "reasoning": "Regex pattern match (fallback)"
                 }
         
+        # Check if query mentions a specific collection (Books, Electronics, etc.)
+        # This should trigger getcatalog with collection filter
+        collections = ['electronics', 'furniture', 'books', 'clothing']
+        collection_action_words = [
+            'list', 'show', 'show me', 'get', 'get me', 'give me', 
+            'display', 'view', 'browse', 'see', 'find', 'search',
+            'do you have', 'have', 'any', 'all', 'what', 'which',
+            'tell me about', 'want', 'need', 'looking for'
+        ]
+        
+        for collection in collections:
+            if collection in user_input_lower:
+                # Check if there's an action word before or after the collection
+                for action in collection_action_words:
+                    if action in user_input_lower:
+                        logger.info(f"✅ Regex detected catalog query for collection: {collection} (fallback)")
+                        return {
+                            "tool_name": "getcatalog",
+                            "parameters": {"collection_name": collection.capitalize()},
+                            "confidence": 0.9,
+                            "reasoning": f"Collection-specific query: '{collection}' with action '{action}' (fallback)"
+                        }
+                
+                # Also handle direct questions like "Books?" or "Electronics?"
+                # or statements like just "Books" or "all books"
+                if (user_input_lower.strip().endswith('?') or 
+                    len(user_input_lower.split()) <= 3):  # Short queries
+                    logger.info(f"✅ Regex detected direct collection query: {collection} (fallback)")
+                    return {
+                        "tool_name": "getcatalog",
+                        "parameters": {"collection_name": collection.capitalize()},
+                        "confidence": 0.85,
+                        "reasoning": f"Direct collection query: '{collection}' (fallback)"
+                    }
+        
+        # Check for catalog tool keywords
+        catalog_keywords = {
+            'listcollections': ['what collections', 'show collections', 'list collections', 
+                               'available collections', 'what items', 'what do you have',
+                               'collections do you have'],
+            'getcatalog': ['show catalog', 'get catalog', 'show products', 'catalog',
+                          'show me products', 'view catalog', 'browse catalog',
+                          'products in', 'items in', 'what products'],
+            'searchproducts': ['find', 'search', 'look for', 'looking for',
+                             'do you have', 'any products with']
+        }
+        
+        for tool_name, keywords in catalog_keywords.items():
+            for keyword in keywords:
+                if keyword in user_input_lower:
+                    logger.info(f"✅ Regex detected catalog tool: {tool_name} (fallback)")
+                    return {
+                        "tool_name": tool_name,
+                        "parameters": self._extract_catalog_parameters(user_input),
+                        "confidence": 0.85,
+                        "reasoning": f"Catalog keyword match: '{keyword}' (fallback)"
+                    }
+        
         # Check for other tool keywords (original keyword matching)
         tool_keywords = {
             'place_order': ['place order', 'purchase', 'buy'],
@@ -268,6 +347,56 @@ Parameters: {self._get_tool_parameters(tool_instance)}"""
         
         logger.debug("No tool detected by regex fallback")
         return None
+    
+    def _extract_catalog_parameters(self, user_input: str) -> Dict[str, Any]:
+        """Extract catalog-specific parameters from user input."""
+        params = {}
+        user_input_lower = user_input.lower()
+        
+        # Extract collection name
+        collections = ['electronics', 'furniture', 'books', 'clothing']
+        for collection in collections:
+            if collection in user_input_lower:
+                params['collection_name'] = collection.capitalize()
+                break
+        
+        # Extract price filters
+        # Pattern: "under 5000", "below 10000", "less than 20000"
+        price_patterns = [
+            r'(?:under|below|less\s+than|cheaper\s+than)\s+₹?\s*(\d+(?:,?\d+)*)',
+            r'(?:under|below|less\s+than)\s+(\d+)k',  # "under 50k"
+        ]
+        
+        for pattern in price_patterns:
+            match = re.search(pattern, user_input_lower)
+            if match:
+                price_str = match.group(1).replace(',', '')
+                # Handle "k" notation (e.g., "50k" = 50000)
+                if 'k' in user_input_lower:
+                    params['max_price'] = float(price_str) * 1000
+                else:
+                    params['max_price'] = float(price_str)
+                break
+        
+        # Extract keyword for search
+        # If it's a search query, extract the search term
+        search_patterns = [
+            r'find\s+(.+?)(?:\s+in|\s+under|$)',
+            r'search\s+for\s+(.+?)(?:\s+in|\s+under|$)',
+            r'looking\s+for\s+(.+?)(?:\s+in|\s+under|$)',
+        ]
+        
+        for pattern in search_patterns:
+            match = re.search(pattern, user_input_lower)
+            if match:
+                keyword = match.group(1).strip()
+                # Clean up the keyword
+                keyword = keyword.replace('products with', '').replace('items with', '').strip()
+                if keyword and len(keyword) >= 2:
+                    params['keyword'] = keyword
+                break
+        
+        return params
     
     def _detect_user_registration(self, user_input: str) -> Optional[Dict[str, Any]]:
         """Detect if user is providing registration information."""
@@ -421,23 +550,28 @@ Once you're registered, I can help you check your orders, track shipments, and m
     def _extract_parameters(self, user_input: str, tool_name: str) -> Dict[str, Any]:
         """Extract parameters for tool usage from user input."""
         if tool_name == 'getorder':
-            # Look for cart ID patterns
+            user_input_lower = user_input.lower()
+            
+            # Look for cart ID patterns (but avoid matching vague words like "earlier", "yesterday")
             cart_id_patterns = [
-                r'\b(?:cart|Cart|CART)[\s#:]*([A-Za-z0-9]{1,15})\b',  # "cart 454", "Cart cart123"
-                r'\bmy\s+cart[\s#:]*([A-Za-z0-9]{1,15})\b',           # "my cart 454"
-                r'\bcart[_\s]*id[:\s]*([A-Za-z0-9]{1,15})\b',        # "cart id: 454", "cart_id: 123"
-                r'\b(?:order|Order|ORDER)[\s#:]*([A-Za-z0-9]{1,15})\b',  # "cart 454", "Cart cart123",
-                 r'\bmy\s+(?:order|Order|ORDER)[\s#:]*([A-Za-z0-9]{1,15})\b',                 
+                r'\bcart\s*(\d+)\b',  # "cart 454" - numbers only after "cart"
+                r'\bcart[_\s]*id[:\s]*([A-Za-z0-9]{1,15})\b',  # "cart id: 454", "cart_id: 123"
+                r'\border\s*(\d+)\b',  # "order 454" - numbers only after "order"
+                r'\b(cart\w{3,})\b',  # "cart454" or "cartabc123" - at least 3 chars after cart
             ]
             
+            cart_id_found = False
             for pattern in cart_id_patterns:
                 cart_id_match = re.search(pattern, user_input, re.IGNORECASE)
                 if cart_id_match:
                     cart_id = cart_id_match.group(1)
-                    logger.info(f"Extracted cart ID: {cart_id} using pattern: {pattern}")
-                    return {"cart_id": cart_id}
+                    # Validate it's a reasonable cart ID (not words like "earlier")
+                    if cart_id.isdigit() or (cart_id.lower().startswith('cart') and len(cart_id) > 4):
+                        logger.info(f"Extracted cart ID: {cart_id} using pattern: {pattern}")
+                        cart_id_found = True
+                        return {"cart_id": cart_id}
             
-            # Look for email patterns
+            # If no valid cart_id found, try to extract email from query
             email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
             email_match = re.search(email_pattern, user_input)
             if email_match:
@@ -445,13 +579,29 @@ Once you're registered, I can help you check your orders, track shipments, and m
                 logger.info(f"Extracted customer email: {customer_email}")
                 return {"customer_email": customer_email}
             
-            # Look for name patterns (if user session has name, use it)
-            if self.user_session and self.user_session.get('name'):
-                customer_name = self.user_session['name']
-                logger.info(f"Using customer name from session: {customer_name}")
-                return {"customer_full_name": customer_name}
+            # Check if query is about orders/carts (even without specific ID)
+            # Keywords that indicate user is asking about their orders
+            order_keywords = [
+                'order', 'cart', 'purchase', 'bought', 'placed', 
+                'total', 'amount', 'price', 'shipment', 'delivery',
+                'tracking', 'status', 'invoice', 'receipt'
+            ]
             
-            logger.warning(f"Could not extract cart_id, email, or name from: {user_input}")
+            is_order_query = any(keyword in user_input_lower for keyword in order_keywords)
+            
+            # If it's an order-related query and no cart_id, use session email
+            if is_order_query and not cart_id_found and self.user_session:
+                if email := self.user_session.get('email'):
+                    logger.info(f"Order query detected, using session email: {email}")
+                    # Note: We could extract amount/total here for future filtering
+                    # For now, just return email and let tool return all user's orders
+                    return {"customer_email": email}
+                elif name := self.user_session.get('name'):
+                    logger.info(f"Order query detected, using session name: {name}")
+                    return {"customer_full_name": name}
+            
+            # Last resort: return empty dict (tool will fail with appropriate error)
+            logger.warning(f"Could not extract cart_id, email, or name from query or session: {user_input}")
         
         return {}
     

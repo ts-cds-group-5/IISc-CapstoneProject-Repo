@@ -73,16 +73,38 @@ class GetOrderTool(BaseCCCPTool):
             if not any([cart_id, customer_email, customer_full_name]):
                 raise ToolError("At least one of cart_id, customer_email, or customer_full_name must be provided")
             
+            # Log what we're searching by
+            search_method = "cart_id" if cart_id else ("email" if customer_email else "name")
+            search_value = cart_id or customer_email or customer_full_name
+            logger.info(f"GetOrderTool: Searching by {search_method}: {search_value}")
+            
             # Retrieve cart from database
             cart_details = self._fetch_cart_from_db(cart_id, customer_email, customer_full_name)
             
             if not cart_details:
-                search_params = [f"cart_id={cart_id}", f"email={customer_email}", f"name={customer_full_name}"]
-                search_str = ", ".join([p for p in search_params if p.split("=")[1] != "None"])
-                raise ToolError(f"Cart not found for: {search_str}")
+                search_params = []
+                if cart_id:
+                    search_params.append(f"cart_id={cart_id}")
+                if customer_email:
+                    search_params.append(f"email={customer_email}")
+                if customer_full_name:
+                    search_params.append(f"name={customer_full_name}")
+                search_str = ", ".join(search_params)
+                
+                # Provide helpful message when searching by email
+                if customer_email and not cart_id:
+                    return f"No active cart found for your email ({customer_email}). You may not have any pending orders."
+                else:
+                    raise ToolError(f"Cart not found for: {search_str}")
             
-            # Format response
-            return self._format_cart_response(cart_details)
+            # Format response with search context
+            search_context = None
+            if customer_email and not cart_id:
+                search_context = f"(Searched by your email: {customer_email})"
+            elif customer_full_name and not cart_id:
+                search_context = f"(Searched by your name: {customer_full_name})"
+            
+            return self._format_cart_response(cart_details, search_context)
             
         except ToolError as e:
             logger.error(f"Tool error in get_order: {str(e)}")
@@ -259,7 +281,7 @@ class GetOrderTool(BaseCCCPTool):
         
         return None
     
-    def _format_cart_response(self, cart_details: Dict[str, Any]) -> str:
+    def _format_cart_response(self, cart_details: Dict[str, Any], search_context: Optional[str] = None) -> str:
         """Format cart details for response using customer_full_name."""
         try:
             customer_name = cart_details.get('customer_full_name', 'Customer')
@@ -274,9 +296,16 @@ class GetOrderTool(BaseCCCPTool):
             # Build response in the desired format
             response_parts = [
                 f"Cart details for {customer_name}",
+            ]
+            
+            # Add search context if provided
+            if search_context:
+                response_parts.append(search_context)
+            
+            response_parts.extend([
                 f"Cart ID {cart_id}, {status_display}",
                 f"Total: ₹{total:.2f}"
-            ]
+            ])
             
             # Add shipping note if available
             if cart_details.get('shipping_note'):

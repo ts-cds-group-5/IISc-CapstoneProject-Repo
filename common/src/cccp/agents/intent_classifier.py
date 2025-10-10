@@ -23,6 +23,7 @@ class IntentClassifier:
         # Define intent categories
         self.intent_categories = [
             "order_inquiry",
+            "catalog_inquiry",
             "general_chat", 
             "tool_usage",
             "complaint",
@@ -42,6 +43,7 @@ class IntentClassifier:
 
 Intent Categories:
 - order_inquiry: Questions about orders, order status, order details
+- catalog_inquiry: Questions about available products, collections, catalog, product search, what's in stock
 - general_chat: General conversation, greetings, small talk
 - tool_usage: Requests to use specific tools or perform calculations
 - complaint: Complaints about service, products, or experience
@@ -199,6 +201,7 @@ Always respond with valid JSON."""
         """Get suggested tools based on intent."""
         tool_mapping = {
             "order_inquiry": ["get_order", "get_user_orders"],
+            "catalog_inquiry": ["listcollections", "getcatalog", "searchproducts"],
             "tool_usage": ["add", "multiply", "get_order"],
             "billing_inquiry": ["get_order", "get_user_orders"],
             "support_request": ["get_order", "get_user_orders"],
