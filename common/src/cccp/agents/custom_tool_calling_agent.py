@@ -151,7 +151,8 @@ Parameters: {self._get_tool_parameters(tool_instance)}"""
                     'name': user_info.get('name', 'User'),
                     'mobile': user_info.get('mobile', 'Not provided'),
                     'email': user_info.get('email', 'Not provided'),
-                    'registered_at': self._get_current_timestamp()
+                    'registered_at': self._get_current_timestamp(),
+                    'conversation_history': []  # Track recent conversation
                 }
                 logger.info(f"User session initialized: {self.user_session}")
             
@@ -164,12 +165,20 @@ Parameters: {self._get_tool_parameters(tool_instance)}"""
                     return self._request_user_registration()
             
             # First, try to detect if this is a tool usage request
-            tool_detection = self._detect_tool_usage(user_input)
+            # Pass conversation history for better context awareness
+            conversation_history = self.user_session.get('conversation_history', [])
+            tool_detection = self._detect_tool_usage(user_input, conversation_history)
+            
             if tool_detection:
-                return self._handle_tool_usage(tool_detection)
+                result = self._handle_tool_usage(tool_detection)
+                # Track conversation
+                self._add_to_conversation_history(user_input, result.get('response', ''), tool_detection.get('tool_name'))
+                return result
             
             # Otherwise, handle as general chat
-            return self._handle_general_chat(user_input)
+            result = self._handle_general_chat(user_input)
+            self._add_to_conversation_history(user_input, result.get('response', ''))
+            return result
             
         except Exception as e:
             logger.error(f"Error processing user input: {str(e)}")
@@ -179,7 +188,7 @@ Parameters: {self._get_tool_parameters(tool_instance)}"""
                 "error": str(e)
             }
     
-    def _detect_tool_usage(self, user_input: str) -> Optional[Dict[str, Any]]:
+    def _detect_tool_usage(self, user_input: str, conversation_history: List[Dict[str, str]] = None) -> Optional[Dict[str, Any]]:
         """
         Detect if user input is requesting a tool usage using LLM-based detection.
         
@@ -188,22 +197,30 @@ Parameters: {self._get_tool_parameters(tool_instance)}"""
         
         Args:
             user_input: The user's query string
+            conversation_history: List of recent conversation turns for multi-turn context
             
         Returns:
             Dictionary with tool_name, parameters, confidence, and reasoning if tool detected,
             None otherwise
         """
+        conversation_history = conversation_history or []
         try:
             # Get available tools information
             tools_info = self._get_tools_info()
+            
+            # Format conversation history for context
+            context_str = self._format_conversation_context(conversation_history)
             
             # Get prompt from centralized prompt system (uses v2_llama_optimized by default)
             prompt = get_prompt(
                 "tool_detection",
                 user_input=user_input,
-                tools_info=tools_info
+                tools_info=tools_info,
+                conversation_context=context_str
             )
             
+            if context_str:
+                logger.debug(f"Including conversation context: {len(conversation_history)} turns")
             logger.debug(f"Generated tool detection prompt for input: {user_input}")
             
             # Get LLM response
@@ -222,14 +239,24 @@ Parameters: {self._get_tool_parameters(tool_instance)}"""
                 return tool_detection
             else:
                 logger.info(f"LLM returned no tool or low confidence, using fallback")
-                return self._fallback_tool_detection(user_input)
+                # Pass LLM-extracted parameters to fallback to preserve them
+                # Handle both nested {"parameters": {...}} and flat {key: value} formats
+                if "parameters" in tool_detection:
+                    llm_params = tool_detection["parameters"]
+                else:
+                    # Flat format - extract all keys except tool_name, confidence, reasoning
+                    llm_params = {k: v for k, v in tool_detection.items() 
+                                 if k not in ['tool_name', 'confidence', 'reasoning']}
+                
+                logger.info(f"Passing LLM params to fallback: {llm_params}")
+                return self._fallback_tool_detection(user_input, llm_params)
             
         except Exception as e:
             logger.warning(f"⚠️ LLM tool detection failed: {str(e)}, falling back to regex")
             # Fallback to regex patterns for reliability
             return self._fallback_tool_detection(user_input)
     
-    def _fallback_tool_detection(self, user_input: str) -> Optional[Dict[str, Any]]:
+    def _fallback_tool_detection(self, user_input: str, llm_params: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
         """
         Fallback regex-based tool detection (original implementation).
         
@@ -238,14 +265,18 @@ Parameters: {self._get_tool_parameters(tool_instance)}"""
         
         Args:
             user_input: The user's query string
+            llm_params: Parameters already extracted by LLM (if any) - these take precedence
             
         Returns:
             Dictionary with tool_name, parameters, and confidence if tool detected,
             None otherwise
         """
         user_input_lower = user_input.lower()
+        llm_params = llm_params or {}
         
         logger.debug(f"Using regex fallback for: {user_input}")
+        if llm_params:
+            logger.debug(f"LLM already extracted parameters: {llm_params}")
         
         # Check for math operations (original pattern matching)
         math_patterns = {
@@ -302,6 +333,67 @@ Parameters: {self._get_tool_parameters(tool_instance)}"""
                         "reasoning": f"Direct collection query: '{collection}' (fallback)"
                     }
         
+        # Check for ORDER queries FIRST (highest priority - user asking about their orders)
+        order_query_keywords = ['order', 'my order', 'cart', 'my cart', 'shipment', 
+                               'delivery', 'tracking', 'purchase', 'bought']
+        
+        if any(kw in user_input_lower for kw in order_query_keywords):
+            logger.info(f"✅ Regex detected order query: getorder (fallback)")
+            
+            # Validate LLM params - discard if they contain placeholder values
+            valid_llm_params = False
+            if llm_params and len(llm_params) > 0:
+                # Check for garbage placeholder values
+                cart_id = llm_params.get('cart_id', '')
+                if cart_id and cart_id not in ['your_order_id', 'order_id', 'cart_id', 'your_cart_id']:
+                    valid_llm_params = True
+                elif llm_params.get('customer_email') or llm_params.get('customer_full_name'):
+                    valid_llm_params = True
+            
+            # Use LLM params only if valid, otherwise extract from input + session
+            if valid_llm_params:
+                logger.info(f"Using validated LLM params: {llm_params}")
+                params = llm_params
+            else:
+                logger.info(f"LLM params invalid or missing, extracting from input + session")
+                params = self._extract_parameters(user_input, 'getorder')
+            
+            return {
+                "tool_name": "getorder",
+                "parameters": params,
+                "confidence": 0.85,
+                "reasoning": "Order/cart query detected (fallback)"
+            }
+        
+        # Check if input looks like a standalone shipping address (for checkout)
+        # Pattern: street/area, city, state/pin
+        address_indicators = ['street', 'road', 'avenue', 'cross', 'block', 'lane', 'nagar', 
+                             'colony', 'apartment', 'flat', 'floor', 'building']
+        
+        # If input has address-like patterns and no other keywords, assume checkout
+        has_address_words = any(word in user_input_lower for word in address_indicators)
+        has_commas = user_input.count(',') >= 1  # Addresses typically have commas
+        has_numbers = bool(re.search(r'\d+', user_input))  # Has street numbers or PIN
+        
+        if has_address_words and has_commas and has_numbers:
+            # Check if input doesn't match other tool patterns
+            no_add_keyword = not any(kw in user_input_lower for kw in ['add', 'buy', 'purchase', 'show', 'list'])
+            no_remove_keyword = not any(kw in user_input_lower for kw in ['remove', 'delete'])
+            
+            if no_add_keyword and no_remove_keyword:
+                logger.info(f"✅ Detected standalone address, inferring checkout (fallback)")
+                # Extract address and optional notes
+                params = self._extract_cart_operation_parameters(user_input, 'checkout')
+                if not params:
+                    params = {'shipping_address': user_input.strip()}
+                
+                return {
+                    "tool_name": "checkout",
+                    "parameters": params,
+                    "confidence": 0.80,
+                    "reasoning": "Standalone address detected, inferred checkout"
+                }
+        
         # Check for cart operation keywords (highest priority after specific IDs)
         cart_keywords = {
             'viewcart': ['show cart', 'view cart', 'my cart', 'cart contents',
@@ -321,8 +413,14 @@ Parameters: {self._get_tool_parameters(tool_instance)}"""
                 if keyword in user_input_lower:
                     logger.info(f"✅ Regex detected cart tool: {tool_name} (fallback)")
                     
-                    # Extract parameters for cart operations
-                    params = self._extract_cart_operation_parameters(user_input, tool_name)
+                    # Use LLM parameters if available, otherwise extract from regex
+                    if llm_params and len(llm_params) > 0:
+                        logger.info(f"Using LLM-extracted parameters: {llm_params}")
+                        params = llm_params
+                    else:
+                        # Extract parameters for cart operations
+                        logger.debug(f"No LLM params, extracting from regex")
+                        params = self._extract_cart_operation_parameters(user_input, tool_name)
                     
                     return {
                         "tool_name": tool_name,
@@ -340,7 +438,7 @@ Parameters: {self._get_tool_parameters(tool_instance)}"""
                           'show me products', 'view catalog', 'browse catalog',
                           'products in', 'items in', 'what products'],
             'searchproducts': ['find', 'search', 'look for', 'looking for',
-                             'do you have', 'any products with']
+                             'any products with']  # Removed "do you have" - too generic
         }
         
         for tool_name, keywords in catalog_keywords.items():
@@ -354,25 +452,8 @@ Parameters: {self._get_tool_parameters(tool_instance)}"""
                         "reasoning": f"Catalog keyword match: '{keyword}' (fallback)"
                     }
         
-        # Check for other tool keywords (original keyword matching)
-        tool_keywords = {
-            'place_order': ['place order', 'purchase', 'buy'],
-            'getorder': ['cart','my cart','my cart status', 'cart status', 'order', 'my order', 
-                        'my order status','my shipment','shipment details', 'my shipment details',
-                        'shipping details', 'tracking details','delivery details','invoice details',
-                        'ETA','delayed','early','on time','late']
-        }
-        
-        for tool_name, keywords in tool_keywords.items():
-            for keyword in keywords:
-                if keyword in user_input_lower:
-                    logger.info(f"✅ Regex detected tool: {tool_name} (fallback)")
-                    return {
-                        "tool_name": tool_name,
-                        "parameters": self._extract_parameters(user_input, tool_name),
-                        "confidence": 0.8,
-                        "reasoning": f"Keyword match: '{keyword}' (fallback)"
-                    }
+        # Note: getorder is now checked earlier (line 336) with higher priority
+        # This prevents false matches with catalog tools
         
         logger.debug("No tool detected by regex fallback")
         return None
@@ -672,6 +753,62 @@ Once you're registered, I can help you check your orders, track shipments, and m
         from datetime import datetime
         return datetime.now().isoformat()
     
+    def _add_to_conversation_history(self, user_input: str, assistant_response: str, tool_used: str = None):
+        """
+        Add conversation turn to history for context awareness.
+        Keeps last 5 turns to avoid context overflow.
+        
+        Args:
+            user_input: User's message
+            assistant_response: Assistant's response
+            tool_used: Tool name if any tool was used
+        """
+        if not self.user_session:
+            return
+        
+        if 'conversation_history' not in self.user_session:
+            self.user_session['conversation_history'] = []
+        
+        # Add new turn
+        turn = {
+            'user': user_input,
+            'assistant': assistant_response[:200] if assistant_response else '',  # Truncate long responses
+            'tool': tool_used
+        }
+        
+        self.user_session['conversation_history'].append(turn)
+        
+        # Keep only last 5 turns
+        if len(self.user_session['conversation_history']) > 5:
+            self.user_session['conversation_history'] = self.user_session['conversation_history'][-5:]
+        
+        logger.debug(f"Conversation history updated. Total turns: {len(self.user_session['conversation_history'])}")
+    
+    def _format_conversation_context(self, conversation_history: List[Dict[str, str]]) -> str:
+        """
+        Format conversation history for inclusion in prompts.
+        
+        Args:
+            conversation_history: List of conversation turns
+            
+        Returns:
+            Formatted string with recent conversation context
+        """
+        if not conversation_history:
+            return ""
+        
+        context_lines = ["Recent conversation context:"]
+        for i, turn in enumerate(conversation_history, 1):
+            user_msg = turn.get('user', '')
+            tool_used = turn.get('tool')
+            
+            context_lines.append(f"Turn {i}:")
+            context_lines.append(f"  User: {user_msg}")
+            if tool_used:
+                context_lines.append(f"  Tool used: {tool_used}")
+        
+        return "\n".join(context_lines)
+    
     def _extract_parameters(self, user_input: str, tool_name: str) -> Dict[str, Any]:
         """Extract parameters for tool usage from user input."""
         if tool_name == 'getorder':
@@ -753,6 +890,15 @@ Once you're registered, I can help you check your orders, track shipments, and m
                 # Cart tools need access to user session for cart state
                 parameters['user_session'] = self.user_session
                 logger.debug(f"Passing user_session to cart tool: {tool_name}")
+            
+            # Special handling for getorder with empty params - inject session email
+            if tool_name == 'getorder' and not parameters:
+                if self.user_session and self.user_session.get('email'):
+                    parameters['customer_email'] = self.user_session['email']
+                    logger.info(f"getorder: No params provided, using session email: {parameters['customer_email']}")
+                elif self.user_session and self.user_session.get('name'):
+                    parameters['customer_full_name'] = self.user_session['name']
+                    logger.info(f"getorder: No params provided, using session name: {parameters['customer_full_name']}")
             
             result = tool.run(**parameters)
             
