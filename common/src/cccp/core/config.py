@@ -56,6 +56,14 @@ class Settings(BaseSettings):
     langgraph_debug: bool = Field(default=False, env="LANGGRAPH_DEBUG")
     max_iterations: int = Field(default=10, env="MAX_ITERATIONS")
     
+    # RAG (Retrieval-Augmented Generation)
+    rag_enabled: bool = Field(default=True, env="RAG_ENABLED")
+    rag_source: str = Field(default="local", env="RAG_SOURCE")
+    rag_local_path: str = Field(default="../rag", env="RAG_LOCAL_PATH")
+    
+    # Embeddings
+    enable_embeddings: bool = Field(default=True, env="ENABLE_EMBEDDINGS")
+    
     # Security
     secret_key: str = Field(default="your-secret-key-change-in-production", env="SECRET_KEY")
     cors_origins: str = Field(default="*", env="CORS_ORIGINS")
