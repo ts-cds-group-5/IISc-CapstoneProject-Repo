@@ -5,7 +5,7 @@ from langchain_core.prompts import PromptTemplate
 from langchain.chains import RetrievalQA
 from langchain_core.output_parsers import StrOutputParser
 from langchain.schema.runnable import RunnableParallel, RunnablePassthrough
-
+from cccp.core.config import get_settings
 
 # Set device
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -16,9 +16,9 @@ embedding = HuggingFaceEmbeddings(
     model_kwargs={'device': device},
     encode_kwargs={'normalize_embeddings': False}
 )
-
+settings = get_settings()
 # Load vector DB
-vectordb = Chroma(persist_directory = './embeddings/chroma/', embedding_function = embedding)
+vectordb = Chroma(persist_directory = settings.embeddings_path, embedding_function = embedding)
 
 #fetch all doccuments in the vectordb
 # Set up retriever

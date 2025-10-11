@@ -86,6 +86,8 @@ class Settings(BaseSettings):
     mcp_postgres_host: str = Field(default="localhost", env="MCP_POSTGRES_HOST")
     mcp_postgres_port: int = Field(default=8001, env="MCP_POSTGRES_PORT")
     mcp_server_path: Optional[str] = Field(default=None, env="MCP_SERVER_PATH")  # Path to MCP server script
+
+    embeddings_path: Optional[str] = Field(default=None, env="EMBEDDINGS_PATH")
     
     class Config:
         """Pydantic config."""

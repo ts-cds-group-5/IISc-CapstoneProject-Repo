@@ -9,6 +9,7 @@ from langchain_chroma import Chroma
 #from langchain_postgres import PostgresVectorStore
 #import psycopg
 from langchain.prompts import PromptTemplate
+from cccp.core.config import get_settings
 #from langchain_postgres.chat_message_histories import PostgresChatMessageHistory
 # Set device
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -45,7 +46,8 @@ embedding = HuggingFaceEmbeddings(
 )
 
 # Create and store embeddings in vector DB--TODO
-persist_directory = './embeddings/chroma/'
+settings = get_settings()
+persist_directory = settings.embeddings_path
 if os.path.exists(persist_directory):
     shutil.rmtree(persist_directory)
 os.makedirs(persist_directory, exist_ok=True)

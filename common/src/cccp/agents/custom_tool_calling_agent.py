@@ -956,20 +956,32 @@ Once you're registered, I can help you check your orders, track shipments, and m
         logger.info("Its reaching uptill here.....")
         logger.info(f"User input: {user_input}")
         try:
-            model = self.model_service.get_model()
+            raw_model = self.model_service.get_model()
             device = "cuda" if torch.cuda.is_available() else "cpu"
 
-            # call here the rag if needed
-            # Embedding model
-            # Embedding model (should match embeddings.py)
+            # Create a LangChain wrapper for the model
+            from langchain.llms.base import LLM
+            class CustomModelWrapper(LLM):
+                def _call(self, prompt: str, stop=None, **kwargs) -> str:
+                    response = raw_model.generate(prompt)
+                    return response
+
+                @property
+                def _llm_type(self) -> str:
+                    return "custom_model"
+
+            model = CustomModelWrapper()
+
+            # Embedding model setup
             embedding = HuggingFaceEmbeddings(
                 model_name="mixedbread-ai/mxbai-embed-large-v1",
                 model_kwargs={'device': device},
                 encode_kwargs={'normalize_embeddings': False}
             )
-            logger.info("Its reaching uptill here.....")
+            logger.info("Model and embeddings initialized...")
             # Load vector DB
-            vectordb = Chroma(persist_directory = './embeddings/chroma/', embedding_function = embedding)
+            settings = get_settings()
+            vectordb = Chroma(persist_directory = settings.embeddings_path, embedding_function = embedding)
 
             #fetch all doccuments in the vectordb
             # Set up retriever
@@ -985,7 +997,8 @@ Once you're registered, I can help you check your orders, track shipments, and m
             chain = RetrievalQA.from_chain_type(llm=model, chain_type="stuff", retriever=retriever, return_source_documents=True, chain_type_kwargs={"prompt": QA_PROMPT})
             
             try:
-                response = chain.invoke(user_input)
+                response = chain.invoke({"query": user_input})
+                logger.info("RAG chain invoked successfully.")
             except Exception as e:
                 logger.error(f"Error invoking chain: {str(e)}")
                 # Fallback to direct model call
