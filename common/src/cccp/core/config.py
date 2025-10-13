@@ -56,6 +56,14 @@ class Settings(BaseSettings):
     langgraph_debug: bool = Field(default=False, env="LANGGRAPH_DEBUG")
     max_iterations: int = Field(default=10, env="MAX_ITERATIONS")
     
+    # RAG (Retrieval-Augmented Generation)
+    rag_enabled: bool = Field(default=True, env="RAG_ENABLED")
+    rag_source: str = Field(default="local", env="RAG_SOURCE")
+    rag_local_path: str = Field(default="../rag", env="RAG_LOCAL_PATH")
+    
+    # Embeddings
+    enable_embeddings: bool = Field(default=True, env="ENABLE_EMBEDDINGS")
+    
     # Security
     secret_key: str = Field(default="your-secret-key-change-in-production", env="SECRET_KEY")
     cors_origins: str = Field(default="*", env="CORS_ORIGINS")
@@ -78,6 +86,8 @@ class Settings(BaseSettings):
     mcp_postgres_host: str = Field(default="localhost", env="MCP_POSTGRES_HOST")
     mcp_postgres_port: int = Field(default=8001, env="MCP_POSTGRES_PORT")
     mcp_server_path: Optional[str] = Field(default=None, env="MCP_SERVER_PATH")  # Path to MCP server script
+
+    embeddings_path: Optional[str] = Field(default=None, env="EMBEDDINGS_PATH")
     
     class Config:
         """Pydantic config."""
