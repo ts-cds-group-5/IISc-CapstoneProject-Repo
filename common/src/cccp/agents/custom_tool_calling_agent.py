@@ -2,12 +2,21 @@
 
 import json
 import re
+import torch
 from typing import Dict, Any, Optional, List
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_chroma import Chroma
 from cccp.services.model_service import ModelService
 from cccp.core.config import get_settings
 from cccp.tools import get_tool, get_all_tools
 from cccp.core.logging import get_logger
 from cccp.prompts import get_prompt
+from langchain.chains import RetrievalQA
+from langchain.prompts import PromptTemplate
+ # from langchain.llms import Ollama
+from langchain.llms import HuggingFacePipeline
+from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
+
 
 logger = get_logger(__name__)
 
@@ -942,17 +951,76 @@ Once you're registered, I can help you check your orders, track shipments, and m
     
     def _handle_general_chat(self, user_input: str) -> Dict[str, Any]:
         """Handle general chat using the model."""
+        #break point
+        #import pdb; pdb.set_trace()
+        logger.info("Its reaching uptill here.....")
+        logger.info(f"User input: {user_input}")
         try:
-            model = self.model_service.get_model()
-            
+            raw_model = self.model_service.get_model()
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+
+            # Create a LangChain wrapper for the model
+            from langchain.llms.base import LLM
+            class CustomModelWrapper(LLM):
+                def _call(self, prompt: str, stop=None, **kwargs) -> str:
+                    response = raw_model.generate(prompt)
+                    return response
+
+                @property
+                def _llm_type(self) -> str:
+                    return "custom_model"
+
+            model = CustomModelWrapper()
+
+            # Embedding model setup
+            embedding = HuggingFaceEmbeddings(
+                model_name="mixedbread-ai/mxbai-embed-large-v1",
+                model_kwargs={'device': device},
+                encode_kwargs={'normalize_embeddings': False}
+            )
+            logger.info("Model and embeddings initialized...")
+            # Load vector DB
+            settings = get_settings()
+            vectordb = Chroma(persist_directory = settings.embeddings_path, embedding_function = embedding)
+
+            #fetch all doccuments in the vectordb
+            # Set up retriever
+            retriever = vectordb.as_retriever(search_type="mmr", search_kwargs={"k": 10, "fetch_k": 15})
+            # ## RAG INsertion start
+                        ## RAG INsertion end
             # Create a prompt for the model
-            prompt = self._create_chat_prompt(user_input)
+            #prompt = self._create_chat_prompt(user_input)
             
-            # Generate response
-            response = model.generate(prompt)
+            logger.info("Setting up RAG chain...")
+            template = """Use the following pieces of context to answer the question at the end.\nIf you don't know the answer, just say that you don't know, don't try to make up an answer.\nAlways say \"thanks for asking!\" at the end of the answer.\n{context}\nQuestion: {question}\nHelpful Answer:"""
+            QA_PROMPT = PromptTemplate(input_variables=["context", "question"], template=template)
+            chain = RetrievalQA.from_chain_type(llm=model, chain_type="stuff", retriever=retriever, return_source_documents=True, chain_type_kwargs={"prompt": QA_PROMPT})
             
-            # Clean up the response
-            clean_response = self._clean_model_response(response, prompt)
+            try:
+                response = chain.invoke({"query": user_input})
+                logger.info("RAG chain invoked successfully.")
+            except Exception as e:
+                logger.error(f"Error invoking chain: {str(e)}")
+                # Fallback to direct model call
+                prompt = self._create_chat_prompt(user_input)
+                response = model.generate(prompt)
+            
+            # Debug log to see response structure
+            logger.info(f"Response type: {type(response)}")
+
+            # Extract the answer from the response
+            if isinstance(response, dict):
+                if 'result' in response:
+                    clean_response = response['result']
+                elif 'answer' in response:
+                    clean_response = response['answer']
+                else:
+                    # Handle case where response dict has other keys
+                    clean_response = str(response)
+            elif isinstance(response, str):
+                clean_response = response
+            else:
+                clean_response = str(response)
             
             return {
                 "intent": "general_chat",

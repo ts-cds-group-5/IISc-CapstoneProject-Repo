@@ -14,6 +14,7 @@ Performance Notes:
   * Starts JSON response for better completion
 """
 
+import logging
 from typing import Optional
 
 
@@ -120,8 +121,8 @@ GENERAL QUERIES (no tool):
 
 <|eot_id|><|start_header_id|>assistant<|end_header_id|>
 
-{{"""
-    
+"""
+    logging.info("Generated tool detection prompt.")
     return prompt
 
 
