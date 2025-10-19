@@ -3,6 +3,7 @@
 import streamlit as st
 import requests
 import json
+import random
 from typing import Dict, Any, Optional
 from cccp.core.logging import get_logger, setup_logging
 from cccp.core.config import get_settings
@@ -26,14 +27,14 @@ class StreamlitApp:
         """Create and configure the Streamlit app."""
         st.set_page_config(
             page_title="CCCP Advanced",
-            page_icon="🤖",
+            page_icon="💬",
             layout="wide",
             initial_sidebar_state="expanded"
         )
         
         # Title and header
-        st.title("🤖 Evershop Customer Support Chatbot")
-        st.subheader("Evershop Customer Support Chatbot - Chat with our AI agent")
+        st.title("Evershop Customer Support")
+        st.subheader("Evershop Customer Support - Chat with our agent")
         
         # Sidebar
         self._create_sidebar()
@@ -94,10 +95,77 @@ class StreamlitApp:
             else:
                 st.error("❌ API Disconnected")
     
+    def _create_registration_form(self) -> None:
+        """Create the user registration form."""
+        st.subheader("User Registration")
+        
+        # Check if user is already registered
+        if "user_info" not in st.session_state:
+            st.session_state.user_info = None
+        
+        if not st.session_state.user_info or not st.session_state.user_info.get("registered"):
+            # Show registration form
+            with st.form("registration_form"):
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    name = st.text_input("Name *", placeholder="Enter your name")
+                
+                with col2:
+                    mobile = st.text_input("Mobile Number *", placeholder="10-15 digits")
+                
+                with col3:
+                    email = st.text_input("Email ID *", placeholder="your@email.com")
+                
+                submitted = st.form_submit_button("Register")
+                
+                if submitted:
+                    # Validate inputs
+                    if not name or not mobile or not email:
+                        st.error("⚠️ Please fill in all fields (Name, Mobile Number, and Email)")
+                    elif not mobile.isdigit() or len(mobile) < 10 or len(mobile) > 15:
+                        st.error("⚠️ Mobile number must be 10-15 digits")
+                    elif "@" not in email or "." not in email:
+                        st.error("⚠️ Please enter a valid email address")
+                    else:
+                        # Generate random User ID (4-6 digits)
+                        user_id = str(random.randint(1000, 999999))
+                        
+                        # Store user info in session state
+                        st.session_state.user_info = {
+                            'user_id': user_id,
+                            'name': name,
+                            'mobile': mobile,
+                            'email': email,
+                            'registered': True
+                        }
+                        
+                        st.success(f"✅ Registration successful! Your User ID is: {user_id}")
+                        st.rerun()
+        else:
+            # Show registered user info in a compact banner
+            user_info = st.session_state.user_info
+            st.info(f"👤 **{user_info['name']}** | 📱 {user_info['mobile']} | 📧 {user_info['email']} | 🆔 User ID: {user_info['user_id']}")
+            
+            # Option to update registration
+            if st.button("Update Registration"):
+                st.session_state.user_info = None
+                st.rerun()
+    
     def _create_chat_interface(self) -> None:
         """Create the main chat interface."""
+        # Show registration form first
+        self._create_registration_form()
+        
+        st.markdown("---")
+        
+        # Check if user is registered
+        if not st.session_state.get("user_info") or not st.session_state.user_info.get("registered"):
+            st.warning("⚠️ Please register above to start chatting with our support agent.")
+            return
+        
         # Welcome message
-        st.write("Welcome to the Evershop customer support chatbot! You can chat with the bot below.")
+        st.write("💬 **Chat with our support agent**")
         
         # Initialize chat history
         if "messages" not in st.session_state:
@@ -122,7 +190,9 @@ class StreamlitApp:
                 with st.spinner("Thinking..."):
                     response = self._get_chat_response(prompt)
                     if response:
-                        st.markdown(response["response"])
+                        # Format response for better display with newlines
+                        formatted_response = response["response"].replace('\n', '\n\n')
+                        st.markdown(formatted_response)
                         st.session_state.messages.append({
                             "role": "assistant", 
                             "content": response["response"]
@@ -135,10 +205,16 @@ class StreamlitApp:
         try:
             self.logger.info(f"Sending prompt to API: {prompt}")
             
-            # Prepare request data
+            # Get user info from session state
+            user_info = st.session_state.get("user_info", {})
+            
+            # Prepare request data with user information
             request_data = {
                 "prompt": prompt,
-                "user_id": "streamlit_user",
+                "user_id": user_info.get("user_id", "streamlit_user"),
+                "user_name": user_info.get("name"),
+                "user_mobile": user_info.get("mobile"),
+                "user_email": user_info.get("email"),
                 **st.session_state.get("model_settings", {})
             }
             

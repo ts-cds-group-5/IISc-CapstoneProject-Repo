@@ -1,7 +1,7 @@
 # read https://docs.langchain.com/langgraph-platform
 # for reference read: https://docs.langchain.com/oss/python/langgraph/application-structure#python-requirements-txt
 
-from typing import TypedDict, List, Optional
+from typing import TypedDict, List, Optional, Dict, Any
 from langchain_core.messages import BaseMessage
 
 class AgentState(TypedDict):
@@ -13,5 +13,6 @@ class AgentState(TypedDict):
     tool_results: List[str]
     error: Optional[str]
     status: Optional[str]
+    user_info: Optional[Dict[str, Any]]  # User registration info (user_id, name, mobile, email)
     # Note: messages field removed to avoid JSON serialization issues
     # Messages are handled internally by the chat node and not stored in state

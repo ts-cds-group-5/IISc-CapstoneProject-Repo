@@ -2,11 +2,21 @@
 
 import json
 import re
+import torch
 from typing import Dict, Any, Optional, List
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_chroma import Chroma
 from cccp.services.model_service import ModelService
 from cccp.core.config import get_settings
 from cccp.tools import get_tool, get_all_tools
 from cccp.core.logging import get_logger
+from cccp.prompts import get_prompt
+from langchain.chains import RetrievalQA
+from langchain.prompts import PromptTemplate
+ # from langchain.llms import Ollama
+from langchain.llms import HuggingFacePipeline
+from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
+
 
 logger = get_logger(__name__)
 
@@ -17,6 +27,7 @@ class CustomToolCallingAgent:
     def __init__(self):
         self.model_service = None
         self.available_tools = {}
+        self.user_session = None  # Store user information
         self._initialize_agent()
         logger.info("CustomToolCallingAgent initialized")
     
@@ -34,18 +45,149 @@ class CustomToolCallingAgent:
             logger.error(f"Failed to initialize CustomToolCallingAgent: {str(e)}")
             raise
     
-    def process_user_input(self, user_input: str) -> Dict[str, Any]:
-        """Process user input and return structured response."""
+    def _get_tools_info(self) -> str:
+        """
+        Get formatted information about available tools for LLM prompt.
+        
+        Returns:
+            Formatted string with tool names, descriptions, and parameters
+        """
+        tools_info = []
+        
+        for tool_name, tool_instance in self.available_tools.items():
+            tool_info = f"""Tool: {tool_name}
+Description: {tool_instance.description}
+Parameters: {self._get_tool_parameters(tool_instance)}"""
+            tools_info.append(tool_info.strip())
+        
+        return "\n\n".join(tools_info)
+    
+    def _get_tool_parameters(self, tool_instance) -> str:
+        """
+        Get parameter information for a specific tool.
+        
+        Args:
+            tool_instance: The tool instance to extract parameters from
+            
+        Returns:
+            Formatted string describing tool parameters
+        """
+        # Extract parameters from tool's run method signature
+        import inspect
+        sig = inspect.signature(tool_instance.run)
+        params = []
+        
+        for param_name, param in sig.parameters.items():
+            if param_name == 'self':
+                continue
+            
+            param_type = param.annotation if param.annotation != inspect.Parameter.empty else 'any'
+            param_default = f" (default: {param.default})" if param.default != inspect.Parameter.empty else " (required)"
+            params.append(f"{param_name}: {param_type}{param_default}")
+        
+        return ", ".join(params) if params else "No parameters"
+    
+    def _validate_and_clean_json(self, response: str) -> Dict[str, Any]:
+        """
+        Validate and clean JSON response from LLM (especially Llama 3.2).
+        
+        Args:
+            response: Raw response string from LLM
+            
+        Returns:
+            Parsed dictionary from JSON response
+            
+        Raises:
+            ValueError: If no valid JSON found in response
+        """
+        try:
+            # Log the raw response for debugging
+            logger.debug(f"Raw LLM response (first 200 chars): {response[:200]}")
+            
+            # Remove common JSON artifacts
+            cleaned = response.strip()
+            cleaned = cleaned.replace('```json', '').replace('```', '').strip()
+            
+            # Remove any leading text before the JSON (Llama sometimes adds preamble)
+            # Look for the FIRST { and FIRST matching }
+            start = cleaned.find('{')
+            if start == -1:
+                raise ValueError("No opening brace found in response")
+            
+            # Find the matching closing brace for the first opening brace
+            brace_count = 0
+            end = -1
+            for i in range(start, len(cleaned)):
+                if cleaned[i] == '{':
+                    brace_count += 1
+                elif cleaned[i] == '}':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        end = i + 1
+                        break
+            
+            if end == -1:
+                raise ValueError("No matching closing brace found in response")
+            
+            json_str = cleaned[start:end]
+            logger.debug(f"Extracted JSON string: {json_str}")
+            
+            # Parse the JSON
+            parsed = json.loads(json_str)
+            logger.info(f"Successfully parsed JSON: {parsed}")
+            return parsed
+                
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON validation failed: {str(e)}")
+            logger.error(f"Attempted to parse: {json_str if 'json_str' in locals() else 'N/A'}")
+            raise ValueError(f"Invalid JSON: {str(e)}")
+    
+    def process_user_input(self, user_input: str, user_info: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Process user input and return structured response.
+        
+        Args:
+            user_input: The user's input message
+            user_info: Optional dict with pre-registered user info (user_id, name, mobile, email)
+        """
         try:
             logger.info(f"Processing user input: {user_input}")
             
+            # If user_info is provided from UI, use it to initialize session
+            if user_info and not self.user_session:
+                logger.info("Initializing user session from provided user_info")
+                self.user_session = {
+                    'user_id': user_info.get('user_id', 'unknown'),
+                    'name': user_info.get('name', 'User'),
+                    'mobile': user_info.get('mobile', 'Not provided'),
+                    'email': user_info.get('email', 'Not provided'),
+                    'registered_at': self._get_current_timestamp(),
+                    'conversation_history': []  # Track recent conversation
+                }
+                logger.info(f"User session initialized: {self.user_session}")
+            
+            # Check if user needs to register first (only if no user_info provided and no session)
+            if not self.user_session:
+                registration_info = self._detect_user_registration(user_input)
+                if registration_info:
+                    return self._handle_user_registration(registration_info)
+                else:
+                    return self._request_user_registration()
+            
             # First, try to detect if this is a tool usage request
-            tool_detection = self._detect_tool_usage(user_input)
+            # Pass conversation history for better context awareness
+            conversation_history = self.user_session.get('conversation_history', [])
+            tool_detection = self._detect_tool_usage(user_input, conversation_history)
+            
             if tool_detection:
-                return self._handle_tool_usage(tool_detection)
+                result = self._handle_tool_usage(tool_detection)
+                # Track conversation
+                self._add_to_conversation_history(user_input, result.get('response', ''), tool_detection.get('tool_name'))
+                return result
             
             # Otherwise, handle as general chat
-            return self._handle_general_chat(user_input)
+            result = self._handle_general_chat(user_input)
+            self._add_to_conversation_history(user_input, result.get('response', ''))
+            return result
             
         except Exception as e:
             logger.error(f"Error processing user input: {str(e)}")
@@ -55,11 +197,97 @@ class CustomToolCallingAgent:
                 "error": str(e)
             }
     
-    def _detect_tool_usage(self, user_input: str) -> Optional[Dict[str, Any]]:
-        """Detect if user input is requesting a tool usage."""
-        user_input_lower = user_input.lower()
+    def _detect_tool_usage(self, user_input: str, conversation_history: List[Dict[str, str]] = None) -> Optional[Dict[str, Any]]:
+        """
+        Detect if user input is requesting a tool usage using LLM-based detection.
         
-        # Check for math operations (existing pattern matching)
+        This method uses the centralized prompt system to leverage LLM for natural
+        language understanding. Falls back to regex patterns if LLM fails or has low confidence.
+        
+        Args:
+            user_input: The user's query string
+            conversation_history: List of recent conversation turns for multi-turn context
+            
+        Returns:
+            Dictionary with tool_name, parameters, confidence, and reasoning if tool detected,
+            None otherwise
+        """
+        conversation_history = conversation_history or []
+        try:
+            # Get available tools information
+            tools_info = self._get_tools_info()
+            
+            # Format conversation history for context
+            context_str = self._format_conversation_context(conversation_history)
+            
+            # Get prompt from centralized prompt system (uses v2_llama_optimized by default)
+            prompt = get_prompt(
+                "tool_detection",
+                user_input=user_input,
+                tools_info=tools_info,
+                conversation_context=context_str
+            )
+            
+            if context_str:
+                logger.debug(f"Including conversation context: {len(conversation_history)} turns")
+            logger.debug(f"Generated tool detection prompt for input: {user_input}")
+            
+            # Get LLM response
+            model = self.model_service.get_model()
+            response = model.generate(prompt, temperature=0.1, max_tokens=200)
+            
+            logger.debug(f"LLM raw response: {response}")
+            
+            # Parse and validate JSON response
+            tool_detection = self._validate_and_clean_json(response)
+            
+            # Check if a tool was detected and confidence is sufficient
+            if tool_detection.get("tool_name") and tool_detection.get("confidence", 0) >= 0.7:
+                logger.info(f"✅ LLM detected tool: {tool_detection['tool_name']} (confidence: {tool_detection.get('confidence')})")
+                logger.info(f"Reasoning: {tool_detection.get('reasoning', 'N/A')}")
+                return tool_detection
+            else:
+                logger.info(f"LLM returned no tool or low confidence, using fallback")
+                # Pass LLM-extracted parameters to fallback to preserve them
+                # Handle both nested {"parameters": {...}} and flat {key: value} formats
+                if "parameters" in tool_detection:
+                    llm_params = tool_detection["parameters"]
+                else:
+                    # Flat format - extract all keys except tool_name, confidence, reasoning
+                    llm_params = {k: v for k, v in tool_detection.items() 
+                                 if k not in ['tool_name', 'confidence', 'reasoning']}
+                
+                logger.info(f"Passing LLM params to fallback: {llm_params}")
+                return self._fallback_tool_detection(user_input, llm_params)
+            
+        except Exception as e:
+            logger.warning(f"⚠️ LLM tool detection failed: {str(e)}, falling back to regex")
+            # Fallback to regex patterns for reliability
+            return self._fallback_tool_detection(user_input)
+    
+    def _fallback_tool_detection(self, user_input: str, llm_params: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
+        """
+        Fallback regex-based tool detection (original implementation).
+        
+        This method contains the original regex patterns and serves as a reliable
+        fallback when LLM-based detection fails or returns low confidence.
+        
+        Args:
+            user_input: The user's query string
+            llm_params: Parameters already extracted by LLM (if any) - these take precedence
+            
+        Returns:
+            Dictionary with tool_name, parameters, and confidence if tool detected,
+            None otherwise
+        """
+        user_input_lower = user_input.lower()
+        llm_params = llm_params or {}
+        
+        logger.debug(f"Using regex fallback for: {user_input}")
+        if llm_params:
+            logger.debug(f"LLM already extracted parameters: {llm_params}")
+        
+        # Check for math operations (original pattern matching)
         math_patterns = {
             'add': r'add\s+(\d+)\s*(?:and|by|with)?\s*(\d+)',
             'multiply': r'multiply\s+(\d+)\s*(?:and|by|with)?\s*(\d+)'
@@ -68,40 +296,583 @@ class CustomToolCallingAgent:
         for operation, pattern in math_patterns.items():
             match = re.search(pattern, user_input_lower)
             if match:
+                logger.info(f"✅ Regex detected tool: {operation} (fallback)")
                 return {
                     "tool_name": operation,
                     "parameters": {
                         "a": int(match.group(1)),
                         "b": int(match.group(2))
                     },
-                    "confidence": 0.95
+                    "confidence": 0.95,
+                    "reasoning": "Regex pattern match (fallback)"
                 }
         
-        # Check for other tool keywords
-        tool_keywords = {
-            'order': ['order', 'purchase', 'buy'],
-            'get_order': ['my order', 'order status', 'order details']
+        # Check if query mentions a specific collection (Books, Electronics, etc.)
+        # This should trigger getcatalog with collection filter
+        collections = ['electronics', 'furniture', 'books', 'clothing']
+        collection_action_words = [
+            'list', 'show', 'show me', 'get', 'get me', 'give me', 
+            'display', 'view', 'browse', 'see', 'find', 'search',
+            'do you have', 'have', 'any', 'all', 'what', 'which',
+            'tell me about', 'want', 'need', 'looking for'
+        ]
+        
+        for collection in collections:
+            if collection in user_input_lower:
+                # Check if there's an action word before or after the collection
+                for action in collection_action_words:
+                    if action in user_input_lower:
+                        logger.info(f"✅ Regex detected catalog query for collection: {collection} (fallback)")
+                        return {
+                            "tool_name": "getcatalog",
+                            "parameters": {"collection_name": collection.capitalize()},
+                            "confidence": 0.9,
+                            "reasoning": f"Collection-specific query: '{collection}' with action '{action}' (fallback)"
+                        }
+                
+                # Also handle direct questions like "Books?" or "Electronics?"
+                # or statements like just "Books" or "all books"
+                if (user_input_lower.strip().endswith('?') or 
+                    len(user_input_lower.split()) <= 3):  # Short queries
+                    logger.info(f"✅ Regex detected direct collection query: {collection} (fallback)")
+                    return {
+                        "tool_name": "getcatalog",
+                        "parameters": {"collection_name": collection.capitalize()},
+                        "confidence": 0.85,
+                        "reasoning": f"Direct collection query: '{collection}' (fallback)"
+                    }
+        
+        # Check for ORDER queries FIRST (highest priority - user asking about their orders)
+        order_query_keywords = ['order', 'my order', 'cart', 'my cart', 'shipment', 
+                               'delivery', 'tracking', 'purchase', 'bought']
+        
+        if any(kw in user_input_lower for kw in order_query_keywords):
+            logger.info(f"✅ Regex detected order query: getorder (fallback)")
+            
+            # Validate LLM params - discard if they contain placeholder values
+            valid_llm_params = False
+            if llm_params and len(llm_params) > 0:
+                # Check for garbage placeholder values
+                cart_id = llm_params.get('cart_id', '')
+                if cart_id and cart_id not in ['your_order_id', 'order_id', 'cart_id', 'your_cart_id']:
+                    valid_llm_params = True
+                elif llm_params.get('customer_email') or llm_params.get('customer_full_name'):
+                    valid_llm_params = True
+            
+            # Use LLM params only if valid, otherwise extract from input + session
+            if valid_llm_params:
+                logger.info(f"Using validated LLM params: {llm_params}")
+                params = llm_params
+            else:
+                logger.info(f"LLM params invalid or missing, extracting from input + session")
+                params = self._extract_parameters(user_input, 'getorder')
+            
+            return {
+                "tool_name": "getorder",
+                "parameters": params,
+                "confidence": 0.85,
+                "reasoning": "Order/cart query detected (fallback)"
+            }
+        
+        # Check if input looks like a standalone shipping address (for checkout)
+        # Pattern: street/area, city, state/pin
+        address_indicators = ['street', 'road', 'avenue', 'cross', 'block', 'lane', 'nagar', 
+                             'colony', 'apartment', 'flat', 'floor', 'building']
+        
+        # If input has address-like patterns and no other keywords, assume checkout
+        has_address_words = any(word in user_input_lower for word in address_indicators)
+        has_commas = user_input.count(',') >= 1  # Addresses typically have commas
+        has_numbers = bool(re.search(r'\d+', user_input))  # Has street numbers or PIN
+        
+        if has_address_words and has_commas and has_numbers:
+            # Check if input doesn't match other tool patterns
+            no_add_keyword = not any(kw in user_input_lower for kw in ['add', 'buy', 'purchase', 'show', 'list'])
+            no_remove_keyword = not any(kw in user_input_lower for kw in ['remove', 'delete'])
+            
+            if no_add_keyword and no_remove_keyword:
+                logger.info(f"✅ Detected standalone address, inferring checkout (fallback)")
+                # Extract address and optional notes
+                params = self._extract_cart_operation_parameters(user_input, 'checkout')
+                if not params:
+                    params = {'shipping_address': user_input.strip()}
+                
+                return {
+                    "tool_name": "checkout",
+                    "parameters": params,
+                    "confidence": 0.80,
+                    "reasoning": "Standalone address detected, inferred checkout"
+                }
+        
+        # Check for cart operation keywords (highest priority after specific IDs)
+        cart_keywords = {
+            'viewcart': ['show cart', 'view cart', 'my cart', 'cart contents',
+                        'what\'s in cart', 'cart summary', 'show my cart'],
+            'clearcart': ['clear cart', 'empty cart', 'delete cart', 'cancel cart',
+                         'reset cart', 'clear my cart'],
+            'removefromcart': ['remove from cart', 'delete from cart', 'take out',
+                              'remove', 'delete'],  # Will check if cart context
+            'checkout': ['checkout', 'place order', 'complete order', 'buy now',
+                        'finish order', 'proceed to checkout', 'complete my order'],
+            'addtocart': ['add to cart', 'add', 'buy', 'purchase', 'want to buy',
+                         'i want', 'get me', 'add this', 'buy this']
         }
         
-        for tool_name, keywords in tool_keywords.items():
+        for tool_name, keywords in cart_keywords.items():
             for keyword in keywords:
                 if keyword in user_input_lower:
+                    logger.info(f"✅ Regex detected cart tool: {tool_name} (fallback)")
+                    
+                    # Use LLM parameters if available, otherwise extract from regex
+                    if llm_params and len(llm_params) > 0:
+                        logger.info(f"Using LLM-extracted parameters: {llm_params}")
+                        params = llm_params
+                    else:
+                        # Extract parameters for cart operations
+                        logger.debug(f"No LLM params, extracting from regex")
+                        params = self._extract_cart_operation_parameters(user_input, tool_name)
+                    
                     return {
                         "tool_name": tool_name,
-                        "parameters": self._extract_parameters(user_input, tool_name),
-                        "confidence": 0.8
+                        "parameters": params,
+                        "confidence": 0.85,
+                        "reasoning": f"Cart operation keyword match: '{keyword}' (fallback)"
                     }
+        
+        # Check for catalog tool keywords
+        catalog_keywords = {
+            'listcollections': ['what collections', 'show collections', 'list collections', 
+                               'available collections', 'what items', 'what do you have',
+                               'collections do you have'],
+            'getcatalog': ['show catalog', 'get catalog', 'show products', 'catalog',
+                          'show me products', 'view catalog', 'browse catalog',
+                          'products in', 'items in', 'what products'],
+            'searchproducts': ['find', 'search', 'look for', 'looking for',
+                             'any products with']  # Removed "do you have" - too generic
+        }
+        
+        for tool_name, keywords in catalog_keywords.items():
+            for keyword in keywords:
+                if keyword in user_input_lower:
+                    logger.info(f"✅ Regex detected catalog tool: {tool_name} (fallback)")
+                    return {
+                        "tool_name": tool_name,
+                        "parameters": self._extract_catalog_parameters(user_input),
+                        "confidence": 0.85,
+                        "reasoning": f"Catalog keyword match: '{keyword}' (fallback)"
+                    }
+        
+        # Note: getorder is now checked earlier (line 336) with higher priority
+        # This prevents false matches with catalog tools
+        
+        logger.debug("No tool detected by regex fallback")
+        return None
+    
+    def _extract_catalog_parameters(self, user_input: str) -> Dict[str, Any]:
+        """Extract catalog-specific parameters from user input."""
+        params = {}
+        user_input_lower = user_input.lower()
+        
+        # Extract collection name
+        collections = ['electronics', 'furniture', 'books', 'clothing']
+        for collection in collections:
+            if collection in user_input_lower:
+                params['collection_name'] = collection.capitalize()
+                break
+        
+        # Extract price filters
+        # Pattern: "under 5000", "below 10000", "less than 20000"
+        price_patterns = [
+            r'(?:under|below|less\s+than|cheaper\s+than)\s+₹?\s*(\d+(?:,?\d+)*)',
+            r'(?:under|below|less\s+than)\s+(\d+)k',  # "under 50k"
+        ]
+        
+        for pattern in price_patterns:
+            match = re.search(pattern, user_input_lower)
+            if match:
+                price_str = match.group(1).replace(',', '')
+                # Handle "k" notation (e.g., "50k" = 50000)
+                if 'k' in user_input_lower:
+                    params['max_price'] = float(price_str) * 1000
+                else:
+                    params['max_price'] = float(price_str)
+                break
+        
+        # Extract keyword for search
+        # If it's a search query, extract the search term
+        search_patterns = [
+            r'find\s+(.+?)(?:\s+in|\s+under|$)',
+            r'search\s+for\s+(.+?)(?:\s+in|\s+under|$)',
+            r'looking\s+for\s+(.+?)(?:\s+in|\s+under|$)',
+        ]
+        
+        for pattern in search_patterns:
+            match = re.search(pattern, user_input_lower)
+            if match:
+                keyword = match.group(1).strip()
+                # Clean up the keyword
+                keyword = keyword.replace('products with', '').replace('items with', '').strip()
+                if keyword and len(keyword) >= 2:
+                    params['keyword'] = keyword
+                break
+        
+        return params
+    
+    def _extract_cart_operation_parameters(self, user_input: str, tool_name: str) -> Dict[str, Any]:
+        """Extract parameters for cart operations from user input."""
+        params = {}
+        user_input_lower = user_input.lower()
+        
+        if tool_name == 'addtocart':
+            # Extract product name and quantity
+            # Patterns: "add 2 Samsung", "buy 3 books", "I want Lenovo laptop"
+            
+            # Try to extract quantity + product
+            quantity_patterns = [
+                r'(?:add|buy|want|purchase|get)\s+(?:me\s+)?(\d+)\s+(.+?)(?:\s+to cart|$)',
+                r'(\d+)\s+(.+?)(?:\s+to cart|$)',  # "2 Samsung to cart"
+            ]
+            
+            for pattern in quantity_patterns:
+                match = re.search(pattern, user_input_lower)
+                if match:
+                    params['quantity'] = int(match.group(1))
+                    product_name = match.group(2).strip()
+                    # Clean up common words
+                    product_name = product_name.replace('to cart', '').replace('to my cart', '').strip()
+                    if product_name:
+                        params['product_name'] = product_name
+                    logger.debug(f"Extracted from cart add: quantity={params['quantity']}, product={product_name}")
+                    return params
+            
+            # Try to extract just product name (default quantity = 1)
+            product_patterns = [
+                r'(?:add|buy|want|purchase|get|order)(?:\s+me)?\s+(.+?)(?:\s+to cart|$)',
+                r'(?:add|buy)\s+(.+)',
+            ]
+            
+            for pattern in product_patterns:
+                match = re.search(pattern, user_input_lower)
+                if match:
+                    product_name = match.group(1).strip()
+                    # Clean up
+                    product_name = product_name.replace('to cart', '').replace('to my cart', '').strip()
+                    product_name = product_name.replace('the', '').replace('a', '').strip()
+                    if product_name and len(product_name) >= 2:
+                        params['product_name'] = product_name
+                        params['quantity'] = 1  # Default
+                        logger.debug(f"Extracted product for cart: {product_name}")
+                        return params
+        
+        elif tool_name == 'removefromcart':
+            # Extract product name to remove
+            remove_patterns = [
+                r'(?:remove|delete|take out)\s+(.+?)(?:\s+from cart|$)',
+                r'remove\s+(.+)',
+            ]
+            
+            for pattern in remove_patterns:
+                match = re.search(pattern, user_input_lower)
+                if match:
+                    product_name = match.group(1).strip()
+                    product_name = product_name.replace('from cart', '').replace('from my cart', '').strip()
+                    product_name = product_name.replace('the', '').replace('a', '').strip()
+                    if product_name and len(product_name) >= 2:
+                        params['product_name'] = product_name
+                        logger.debug(f"Extracted product to remove: {product_name}")
+                        break
+        
+        elif tool_name == 'checkout':
+            # Extract shipping address and notes
+            # Pattern: "checkout, ship to 123 Main St, handle with care"
+            
+            address_patterns = [
+                r'(?:ship to|deliver to|address is|address:)\s+(.+?)(?:\.|$)',
+                r'(?:checkout|place order).*?(?:to|at)\s+(.+?)(?:\.|$)',
+            ]
+            
+            for pattern in address_patterns:
+                match = re.search(pattern, user_input, re.IGNORECASE)
+                if match:
+                    address_text = match.group(1).strip()
+                    
+                    # Try to separate address from notes
+                    # Common patterns: "address, notes" or "address. notes"
+                    if ',' in address_text:
+                        parts = address_text.split(',')
+                        # Last part might be notes if it contains keywords
+                        if len(parts) > 3 and any(word in parts[-1].lower() for word in ['handle', 'care', 'fragile', 'note']):
+                            params['shipping_address'] = ','.join(parts[:-1]).strip()
+                            params['shipping_notes'] = parts[-1].strip()
+                        else:
+                            params['shipping_address'] = address_text
+                    else:
+                        params['shipping_address'] = address_text
+                    
+                    logger.debug(f"Extracted shipping info: {params}")
+                    break
+        
+        return params
+    
+    def _detect_user_registration(self, user_input: str) -> Optional[Dict[str, Any]]:
+        """Detect if user is providing registration information."""
+        user_input_lower = user_input.lower()
+        
+        # Look for patterns that indicate user registration
+        # Examples: "My user ID is 123", "I'm John Smith", "My mobile is 1234567890"
+        
+        registration_info = {}
+        
+        # Extract user ID
+        user_id_patterns = [
+            r'\b(?:user\s*id|userid|id)\s*[:\s]*([A-Za-z0-9]{3,20})\b',
+            r'\bmy\s+(?:user\s*id|userid|id)\s+is\s+([A-Za-z0-9]{3,20})\b'
+        ]
+        
+        for pattern in user_id_patterns:
+            match = re.search(pattern, user_input_lower)
+            if match:
+                registration_info['user_id'] = match.group(1)
+                break
+        
+        # Extract name
+        name_patterns = [
+            r'\b(?:i\s*am|my\s*name\s*is|name)\s+([A-Za-z\s]{2,30})\b',
+            r'\b([A-Z][a-z]+\s+[A-Z][a-z]+)\b'  # First Last format
+        ]
+        
+        for pattern in name_patterns:
+            match = re.search(pattern, user_input)
+            if match:
+                registration_info['name'] = match.group(1).strip()
+                break
+        
+        # Extract mobile number
+        mobile_patterns = [
+            r'\b(?:mobile|phone|number)\s*[:\s]*(\d{10,15})\b',
+            r'\bmy\s+(?:mobile|phone|number)\s+is\s+(\d{10,15})\b',
+            r'\b(\d{10,15})\b'  # Just numbers
+        ]
+        
+        for pattern in mobile_patterns:
+            match = re.search(pattern, user_input_lower)
+            if match:
+                registration_info['mobile'] = match.group(1)
+                break
+        
+        # Extract email
+        email_patterns = [
+            r'\b(?:email|mail)\s*[:\s]*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\b',
+            r'\bmy\s+(?:email|mail)\s+is\s+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\b',
+            r'\b([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\b'  # Just email
+        ]
+        
+        for pattern in email_patterns:
+            match = re.search(pattern, user_input_lower)
+            if match:
+                registration_info['email'] = match.group(1)
+                break
+        
+        # Return registration info if we found at least user_id
+        if registration_info.get('user_id'):
+            logger.info(f"Detected registration info: {registration_info}")
+            return registration_info
         
         return None
     
+    def _handle_user_registration(self, registration_info: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle user registration process."""
+        try:
+            # Validate required fields
+            user_id = registration_info.get('user_id')
+            name = registration_info.get('name', 'User')
+            mobile = registration_info.get('mobile', 'Not provided')
+            email = registration_info.get('email', 'Not provided')
+            
+            if not user_id:
+                return {
+                    "intent": "registration_error",
+                    "response": "I need your user ID to help you. Please provide your user ID, name, mobile number, and email.",
+                    "error": "Missing user_id"
+                }
+            
+            # Store user session
+            self.user_session = {
+                'user_id': user_id,
+                'name': name,
+                'mobile': mobile,
+                'email': email,
+                'registered_at': self._get_current_timestamp()
+            }
+            
+            logger.info(f"User registered: {self.user_session}")
+            
+            # Generate personalized welcome message
+            welcome_message = f"""Hello {name}! 👋 
+
+I've registered you with:
+- User ID: {user_id}
+- Name: {name}
+- Mobile: {mobile}
+- Email: {email}
+
+How can I help you today? You can ask me about:
+- Your orders: "What happened to my order 454?"
+- Order status: "Check my order status"
+- Shipping details: "When will my order be delivered?"
+
+What would you like to know?"""
+            
+            return {
+                "intent": "registration_success",
+                "response": welcome_message,
+                "user_session": self.user_session
+            }
+            
+        except Exception as e:
+            logger.error(f"Error handling user registration: {str(e)}")
+            return {
+                "intent": "registration_error",
+                "response": f"Sorry, there was an error registering you: {str(e)}",
+                "error": str(e)
+            }
+    
+    def _request_user_registration(self) -> Dict[str, Any]:
+        """Request user registration information."""
+        registration_message = """Welcome! 👋 I'm your customer service assistant.
+
+To help you with your orders, I need some information from you. Please provide:
+
+1. **Your User ID** (e.g., "My user ID is 12345")
+2. **Your Name** (e.g., "I'm John Smith") 
+3. **Your Mobile Number** (e.g., "My mobile is 9876543210")
+4. **Your Email** (e.g., "My email is john@example.com")
+
+You can provide all this information in one message, like:
+"My user ID is 12345, I'm John Smith, my mobile is 9876543210, and my email is john@example.com"
+
+Once you're registered, I can help you check your orders, track shipments, and more!"""
+        
+        return {
+            "intent": "registration_request",
+            "response": registration_message
+        }
+    
+    def _get_current_timestamp(self) -> str:
+        """Get current timestamp."""
+        from datetime import datetime
+        return datetime.now().isoformat()
+    
+    def _add_to_conversation_history(self, user_input: str, assistant_response: str, tool_used: str = None):
+        """
+        Add conversation turn to history for context awareness.
+        Keeps last 5 turns to avoid context overflow.
+        
+        Args:
+            user_input: User's message
+            assistant_response: Assistant's response
+            tool_used: Tool name if any tool was used
+        """
+        if not self.user_session:
+            return
+        
+        if 'conversation_history' not in self.user_session:
+            self.user_session['conversation_history'] = []
+        
+        # Add new turn
+        turn = {
+            'user': user_input,
+            'assistant': assistant_response[:200] if assistant_response else '',  # Truncate long responses
+            'tool': tool_used
+        }
+        
+        self.user_session['conversation_history'].append(turn)
+        
+        # Keep only last 5 turns
+        if len(self.user_session['conversation_history']) > 5:
+            self.user_session['conversation_history'] = self.user_session['conversation_history'][-5:]
+        
+        logger.debug(f"Conversation history updated. Total turns: {len(self.user_session['conversation_history'])}")
+    
+    def _format_conversation_context(self, conversation_history: List[Dict[str, str]]) -> str:
+        """
+        Format conversation history for inclusion in prompts.
+        
+        Args:
+            conversation_history: List of conversation turns
+            
+        Returns:
+            Formatted string with recent conversation context
+        """
+        if not conversation_history:
+            return ""
+        
+        context_lines = ["Recent conversation context:"]
+        for i, turn in enumerate(conversation_history, 1):
+            user_msg = turn.get('user', '')
+            tool_used = turn.get('tool')
+            
+            context_lines.append(f"Turn {i}:")
+            context_lines.append(f"  User: {user_msg}")
+            if tool_used:
+                context_lines.append(f"  Tool used: {tool_used}")
+        
+        return "\n".join(context_lines)
+    
     def _extract_parameters(self, user_input: str, tool_name: str) -> Dict[str, Any]:
         """Extract parameters for tool usage from user input."""
-        # Simple parameter extraction - can be enhanced
-        if tool_name == 'get_order':
-            # Look for order ID patterns
-            order_id_match = re.search(r'order[_\s]*id[:\s]*(\w+)', user_input.lower())
-            if order_id_match:
-                return {"order_id": order_id_match.group(1)}
+        if tool_name == 'getorder':
+            user_input_lower = user_input.lower()
+            
+            # Look for cart ID patterns (but avoid matching vague words like "earlier", "yesterday")
+            cart_id_patterns = [
+                r'\bcart\s*(\d+)\b',  # "cart 454" - numbers only after "cart"
+                r'\bcart[_\s]*id[:\s]*([A-Za-z0-9]{1,15})\b',  # "cart id: 454", "cart_id: 123"
+                r'\border\s*(\d+)\b',  # "order 454" - numbers only after "order"
+                r'\b(cart\w{3,})\b',  # "cart454" or "cartabc123" - at least 3 chars after cart
+            ]
+            
+            cart_id_found = False
+            for pattern in cart_id_patterns:
+                cart_id_match = re.search(pattern, user_input, re.IGNORECASE)
+                if cart_id_match:
+                    cart_id = cart_id_match.group(1)
+                    # Validate it's a reasonable cart ID (not words like "earlier")
+                    if cart_id.isdigit() or (cart_id.lower().startswith('cart') and len(cart_id) > 4):
+                        logger.info(f"Extracted cart ID: {cart_id} using pattern: {pattern}")
+                        cart_id_found = True
+                        return {"cart_id": cart_id}
+            
+            # If no valid cart_id found, try to extract email from query
+            email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+            email_match = re.search(email_pattern, user_input)
+            if email_match:
+                customer_email = email_match.group(0)
+                logger.info(f"Extracted customer email: {customer_email}")
+                return {"customer_email": customer_email}
+            
+            # Check if query is about orders/carts (even without specific ID)
+            # Keywords that indicate user is asking about their orders
+            order_keywords = [
+                'order', 'cart', 'purchase', 'bought', 'placed', 
+                'total', 'amount', 'price', 'shipment', 'delivery',
+                'tracking', 'status', 'invoice', 'receipt'
+            ]
+            
+            is_order_query = any(keyword in user_input_lower for keyword in order_keywords)
+            
+            # If it's an order-related query and no cart_id, use session email
+            if is_order_query and not cart_id_found and self.user_session:
+                if email := self.user_session.get('email'):
+                    logger.info(f"Order query detected, using session email: {email}")
+                    # Note: We could extract amount/total here for future filtering
+                    # For now, just return email and let tool return all user's orders
+                    return {"customer_email": email}
+                elif name := self.user_session.get('name'):
+                    logger.info(f"Order query detected, using session name: {name}")
+                    return {"customer_full_name": name}
+            
+            # Last resort: return empty dict (tool will fail with appropriate error)
+            logger.warning(f"Could not extract cart_id, email, or name from query or session: {user_input}")
         
         return {}
     
@@ -122,7 +893,22 @@ class CustomToolCallingAgent:
                     "tool_name": tool_name
                 }
             
-            # Execute the tool
+            # Execute the tool (pass user_session for cart tools)
+            cart_tools = ['addtocart', 'removefromcart', 'viewcart', 'clearcart', 'checkout']
+            if tool_name in cart_tools:
+                # Cart tools need access to user session for cart state
+                parameters['user_session'] = self.user_session
+                logger.debug(f"Passing user_session to cart tool: {tool_name}")
+            
+            # Special handling for getorder with empty params - inject session email
+            if tool_name == 'getorder' and not parameters:
+                if self.user_session and self.user_session.get('email'):
+                    parameters['customer_email'] = self.user_session['email']
+                    logger.info(f"getorder: No params provided, using session email: {parameters['customer_email']}")
+                elif self.user_session and self.user_session.get('name'):
+                    parameters['customer_full_name'] = self.user_session['name']
+                    logger.info(f"getorder: No params provided, using session name: {parameters['customer_full_name']}")
+            
             result = tool.run(**parameters)
             
             # Generate a natural language response
@@ -147,31 +933,94 @@ class CustomToolCallingAgent:
     
     def _generate_tool_response(self, tool_name: str, parameters: Dict[str, Any], result: Any) -> str:
         """Generate a natural language response for tool execution."""
+        # Get user name for personalized responses
+        user_name = self.user_session.get('name', 'there') if self.user_session else 'there'
+        
         if tool_name == 'add':
             a, b = parameters.get('a', 0), parameters.get('b', 0)
             return f"The result of adding {a} and {b} is {result}"
         elif tool_name == 'multiply':
             a, b = parameters.get('a', 0), parameters.get('b', 0)
             return f"The result of multiplying {a} and {b} is {result}"
-        elif tool_name == 'get_order':
-            order_id = parameters.get('order_id', 'unknown')
-            return f"Order {order_id} details: {result}"
+        elif tool_name in ['getorder', 'addtocart', 'removefromcart', 'viewcart', 'clearcart', 
+                          'checkout', 'listcollections', 'getcatalog', 'searchproducts']:
+            # For these tools, the result is already formatted nicely
+            return str(result)
         else:
             return f"Tool '{tool_name}' executed successfully. Result: {result}"
     
     def _handle_general_chat(self, user_input: str) -> Dict[str, Any]:
         """Handle general chat using the model."""
+        #break point
+        #import pdb; pdb.set_trace()
+        logger.info("Its reaching uptill here.....")
+        logger.info(f"User input: {user_input}")
         try:
-            model = self.model_service.get_model()
-            
+            raw_model = self.model_service.get_model()
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+
+            # Create a LangChain wrapper for the model
+            from langchain.llms.base import LLM
+            class CustomModelWrapper(LLM):
+                def _call(self, prompt: str, stop=None, **kwargs) -> str:
+                    response = raw_model.generate(prompt)
+                    return response
+
+                @property
+                def _llm_type(self) -> str:
+                    return "custom_model"
+
+            model = CustomModelWrapper()
+
+            # Embedding model setup
+            embedding = HuggingFaceEmbeddings(
+                model_name="mixedbread-ai/mxbai-embed-large-v1",
+                model_kwargs={'device': device},
+                encode_kwargs={'normalize_embeddings': False}
+            )
+            logger.info("Model and embeddings initialized...")
+            # Load vector DB
+            settings = get_settings()
+            vectordb = Chroma(persist_directory = settings.embeddings_path, embedding_function = embedding)
+
+            #fetch all doccuments in the vectordb
+            # Set up retriever
+            retriever = vectordb.as_retriever(search_type="mmr", search_kwargs={"k": 10, "fetch_k": 15})
+            # ## RAG INsertion start
+                        ## RAG INsertion end
             # Create a prompt for the model
-            prompt = self._create_chat_prompt(user_input)
+            #prompt = self._create_chat_prompt(user_input)
             
-            # Generate response
-            response = model.generate(prompt)
+            logger.info("Setting up RAG chain...")
+            template = """Use the following pieces of context to answer the question at the end.\nIf you don't know the answer, just say that you don't know, don't try to make up an answer.\nAlways say \"thanks for asking!\" at the end of the answer.\n{context}\nQuestion: {question}\nHelpful Answer:"""
+            QA_PROMPT = PromptTemplate(input_variables=["context", "question"], template=template)
+            chain = RetrievalQA.from_chain_type(llm=model, chain_type="stuff", retriever=retriever, return_source_documents=True, chain_type_kwargs={"prompt": QA_PROMPT})
             
-            # Clean up the response
-            clean_response = self._clean_model_response(response, prompt)
+            try:
+                response = chain.invoke({"query": user_input})
+                logger.info("RAG chain invoked successfully.")
+            except Exception as e:
+                logger.error(f"Error invoking chain: {str(e)}")
+                # Fallback to direct model call
+                prompt = self._create_chat_prompt(user_input)
+                response = model.generate(prompt)
+            
+            # Debug log to see response structure
+            logger.info(f"Response type: {type(response)}")
+
+            # Extract the answer from the response
+            if isinstance(response, dict):
+                if 'result' in response:
+                    clean_response = response['result']
+                elif 'answer' in response:
+                    clean_response = response['answer']
+                else:
+                    # Handle case where response dict has other keys
+                    clean_response = str(response)
+            elif isinstance(response, str):
+                clean_response = response
+            else:
+                clean_response = str(response)
             
             return {
                 "intent": "general_chat",

@@ -18,8 +18,13 @@ class ChatNode:
         try:
             logger.info(f"Processing user input: {state['user_input']}")
             
+            # Get user info from state if available
+            user_info = state.get('user_info')
+            if user_info:
+                logger.info(f"User info available: {user_info}")
+            
             # Process with custom tool calling agent
-            result = self.custom_agent.process_user_input(state['user_input'])
+            result = self.custom_agent.process_user_input(state['user_input'], user_info=user_info)
             
             # Extract response based on intent
             if result.get("intent") == "tool_usage":
