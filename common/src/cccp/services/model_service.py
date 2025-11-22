@@ -1,5 +1,12 @@
 """Model service for CCCP Advanced."""
 
+import os
+import shutil
+import torch
+from langchain_huggingface import HuggingFaceEmbeddings, HuggingFaceEndpoint, ChatHuggingFace
+from langchain_community.document_loaders import PyPDFLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_chroma import Chroma
 from typing import Dict, Any, Optional, Union
 from cccp.core.logging import LoggerMixin
 from cccp.core.exceptions import ModelError
@@ -16,6 +23,7 @@ class ModelService(LoggerMixin):
         self.model_type = model_type
         self.settings = get_settings()
         self._initialize_model()
+        self._initialize_embeddings()
     
     def _initialize_model(self) -> None:
         """Initialize the model."""
@@ -54,6 +62,60 @@ class ModelService(LoggerMixin):
             self.logger.error(f"Failed to initialize model service: {str(e)}")
             raise ModelError(f"Failed to initialize model service: {str(e)}")
     
+    def _initialize_embeddings(self) -> None:
+        """Initialize embeddings if required."""
+        if self.settings.enable_embeddings:
+            self.logger.info("Initializing embeddings")
+            # Placeholder for embedding initialization logic
+            # e.g., self.embeddings = SomeEmbeddingClass(self.settings.embedding_model)
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            modelPath = "mixedbread-ai/mxbai-embed-large-v1"
+            model_kwargs = {'device': device}
+            encode_kwargs = {'normalize_embeddings': False}
+            embedding = HuggingFaceEmbeddings(
+                model_name=modelPath,
+                model_kwargs=model_kwargs,
+                encode_kwargs=encode_kwargs
+                )
+            
+            pdf_paths = [
+                "src/cccp/rag/docs/01_policy_overview.pdf",
+                "src/cccp/rag/docs/02_return_eligibility.pdf",
+                "src/cccp/rag/docs/03_non_returnable_items.pdf",
+                "src/cccp/rag/docs/04_return_process.pdf",
+                "src/cccp/rag/docs/05_refund_policy.pdf",
+                "src/cccp/rag/docs/06_exchange_policy.pdf",
+                "src/cccp/rag/docs/07_contact_information.pdf",
+            ]
+            loaders = [PyPDFLoader(path) for path in pdf_paths]
+            docs = []
+            for loader in loaders:
+                docs.extend(loader.load())
+            self.logger.info(f"Loaded {len(docs)} documents from PDFs.")
+
+            # Split documents
+            text_splitter = RecursiveCharacterTextSplitter(chunk_size=150, chunk_overlap=25)
+            texts = text_splitter.split_documents(docs)
+            self.logger.info(f"Split into {len(texts)} chunks.")
+
+            persist_directory = 'src/cccp/rag/embeddings/chroma/'
+            if os.path.exists(persist_directory):
+                shutil.rmtree(persist_directory)
+            os.makedirs(persist_directory, exist_ok=True)
+
+            vectordb = Chroma.from_documents(
+                documents=texts,                    # splits we created earlier
+                embedding=embedding,
+                persist_directory=persist_directory, # save the directory
+            )
+            #vectordb.persist() review later
+
+            self.logger.info("Embeddings initialized successfully")
+        else:
+            self.logger.info("Embeddings are disabled in settings")
+
+
+
     def get_model(self) -> Union[Phi2Model, OllamaModel]:
         """Get the current model instance."""
         if not self.model:

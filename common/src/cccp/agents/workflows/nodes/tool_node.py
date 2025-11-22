@@ -7,6 +7,9 @@ import re
 
 logger = get_logger(__name__)
 
+#src/cccp/agents/workflows/nodes/tool_node.py to include PostgreSQL tools.
+
+
 def tool_node(state: AgentState) -> AgentState:
     """Execute tools based on user input."""
     

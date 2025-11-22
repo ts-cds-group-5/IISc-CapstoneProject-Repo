@@ -9,6 +9,9 @@ class ChatRequest(BaseModel):
     
     prompt: str = Field(..., description="The user's prompt or message")
     user_id: str = Field(default="default_user", description="User identifier")
+    user_name: Optional[str] = Field(default=None, description="User's name")
+    user_mobile: Optional[str] = Field(default=None, description="User's mobile number")
+    user_email: Optional[str] = Field(default=None, description="User's email address")
     max_length: Optional[int] = Field(default=None, description="Maximum response length")
     temperature: Optional[float] = Field(default=None, description="Sampling temperature")
     use_tools: bool = Field(default=True, description="Whether to use available tools")
@@ -18,6 +21,9 @@ class ChatRequest(BaseModel):
             "example": {
                 "prompt": "What is 5 + 3?",
                 "user_id": "user123",
+                "user_name": "John Doe",
+                "user_mobile": "9876543210",
+                "user_email": "john@example.com",
                 "max_length": 256,
                 "temperature": 0.2,
                 "use_tools": True

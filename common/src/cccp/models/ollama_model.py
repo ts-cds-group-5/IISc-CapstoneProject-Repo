@@ -265,8 +265,8 @@ Your role is to arrange the given task in this structure.
             
         except Exception as e:
             self.logger.error(f"Error in _generate: {str(e)}")
-            # Return error as string
-            return f"Error generating response: {str(e)}"
+            # Return AIMessage with error content instead of string
+            return AIMessage(content=f"Error generating response: {str(e)}")
 
     def _llm_type(self) -> str:
         """Return type of language model."""
