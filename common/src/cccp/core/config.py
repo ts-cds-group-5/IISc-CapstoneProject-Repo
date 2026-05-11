@@ -67,6 +67,11 @@ class Settings(BaseSettings):
     # Security
     secret_key: str = Field(default="your-secret-key-change-in-production", env="SECRET_KEY")
     cors_origins: str = Field(default="*", env="CORS_ORIGINS")
+    auth_jwt_algorithm: str = Field(default="HS256", env="AUTH_JWT_ALGORITHM")
+    auth_access_token_expire_minutes: int = Field(default=60, env="AUTH_ACCESS_TOKEN_EXPIRE_MINUTES")
+    auth_admin_username: str = Field(default="admin", env="AUTH_ADMIN_USERNAME")
+    auth_admin_email: str = Field(default="admin@example.com", env="AUTH_ADMIN_EMAIL")
+    auth_admin_password: str = Field(default="admin123", env="AUTH_ADMIN_PASSWORD")
     #cors_origins: list[str] = Field(default=["*"], env="CORS_ORIGINS")
 
     

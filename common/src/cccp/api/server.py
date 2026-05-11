@@ -1,6 +1,6 @@
 """FastAPI server for CCCP Advanced."""
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
@@ -9,7 +9,11 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from cccp.core.logging import get_logger, setup_logging
 from cccp.core.config import get_settings
 from cccp.core.exceptions import CCCPException
-from cccp.api.routes import chat_router, tools_router, health_router
+from cccp.api.auth import get_current_user
+from cccp.api.routes.chat import router as chat_router
+from cccp.api.routes.tools import router as tools_router
+from cccp.api.routes.health import router as health_router
+from cccp.api.routes.auth import router as auth_router
 from cccp.api.models.responses import ErrorResponse
 
 logger = get_logger(__name__)
@@ -45,8 +49,9 @@ def create_app() -> FastAPI:
     
     # Include routers
     app.include_router(health_router)
-    app.include_router(chat_router, prefix=settings.api_prefix)
-    app.include_router(tools_router, prefix=settings.api_prefix)
+    app.include_router(auth_router, prefix=settings.api_prefix)
+    app.include_router(chat_router, prefix=settings.api_prefix, dependencies=[Depends(get_current_user)])
+    app.include_router(tools_router, prefix=settings.api_prefix, dependencies=[Depends(get_current_user)])
     
     # Root endpoint
     @app.get("/")
